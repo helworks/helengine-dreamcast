@@ -1,8 +1,8 @@
 # Dreamcast generated runtime contract
 
 This document records the generated ABI and native compatibility evidence for
-Task 2. The generated graph is an external, read-only input. No generated
-source is edited in the Dreamcast worktree.
+Tasks 2 and 3. The generated graph is an external, read-only input. No
+generated source is edited in the Dreamcast worktree.
 
 ## Generated graph identity
 
@@ -195,7 +195,51 @@ The generic FileStream capability checks are recorded under
 raster and content-path tests, the 10-case builder suite and authored-build
 input tests passed in their external checkpoint directories.
 
+## Authored matrix, mesh and resource bridge
+
+The generated `float4x4` ABI was verified from the emitted headers and source:
+translation is stored in `M41..M43`, and `Entity::get_WorldTransformMatrix`
+multiplies `local * parent`. The bridge therefore transposes generated fields
+into the native column-vector `Matrix4x4` layout. It validates finite affine
+model matrices with a positive determinant, and finite rigid camera matrices
+with orthonormal columns. It inverts the rigid camera and reflects only the
+camera-space Z row because generated camera forward is `-Z` while the native
+geometry stage consumes positive depth.
+
+That Z reflection reverses screen winding. Diagnostic geometry retains its
+positive screen-space counterclockwise cull contract; authored submission can
+select clockwise front faces through `RendererConfig::frontFaceWinding`. The
+bridge does not flip X or rewrite authored indices. The fixed-pose raster seam
+test records the outward authored `+Z` face as negative projected area after
+the reflection and the opposite face as positive.
+
+`MeshView` accepts 1..64 positions and 1..128 input triangles. Near and far
+planes are clipped sequentially with interpolated colors; output is bounded
+to 512 triangles and errors clear the frame before returning. The frame is
+persistent on the host heap, and the pinned SH4 stack audit records
+`processGeometry` at 976 bytes plus a 148-byte clip lambda, `makeGeometry` at
+136 bytes and `runDreamcastHost` at 308 bytes. No 43 KiB `GeometryFrame`
+temporary remains on those paths.
+
+Cooked model conversion copies positions, indices, bounds and one submesh into
+owned native arrays, preserves the source model ID and retains the generated
+asset only through `RuntimeModel::SetRawModelAsset`. Material conversion copies
+the validated `dc-unlit` opaque color and render state. Borrowed raw-model
+creation is rejected without consuming its argument. Every adapter failure and
+release path is RAII guarded, and former-authoring-ID cleanup recognizes the
+generated `Array<T>::Empty()` static singleton before deleting metadata.
+
+The focused host suite is recorded under
+`v02/execution/task3-host-check-07` and covers geometry, matrix, mesh, raster
+and content paths, including 128 legal nondegenerate inputs producing 384
+clipped output triangles. The generated-runtime integration evidence is under
+`v02/execution/root-generated-integration`: real `Core` entity hierarchy,
+nonuniform rotated parent/child transforms, cooked model/material
+build/release cycles, borrowed empty-history sentinels, wrong-type cleanup and
+invalid model cases passed under ASan/UBSan. Its only leak report is the known
+40-byte pre-main `StandardPlatformInputConfiguration` static allocation.
+
 Task 2 proves generated Core initialization, one complete frame boundary,
-ordered disposal, the supplied catalog ABI and the memory gate. Task 3 owns
-the authored matrix/mesh bridge; Task 4 owns replacing the probe catalog with
-the manifest-owned startup catalog.
+ordered disposal, the supplied catalog ABI and the memory gate. Task 3 adds the
+authored matrix/mesh bridge and owned model/material adapters. Task 4 owns
+replacing the probe catalog with the manifest-owned startup catalog.

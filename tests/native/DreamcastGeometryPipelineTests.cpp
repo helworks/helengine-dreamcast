@@ -8,7 +8,7 @@
 namespace {
 
 using helengine::dreamcast::ColorRgba;
-using helengine::dreamcast::CubeMeshView;
+using helengine::dreamcast::MeshView;
 using helengine::dreamcast::GeometryConfig;
 using helengine::dreamcast::GeometryFrame;
 using helengine::dreamcast::GeometryStatus;
@@ -40,12 +40,12 @@ Matrix4x4 identityMatrix() {
 }
 
 GeometryConfig defaultConfig() {
-    return GeometryConfig{640.0f, 480.0f, 1.57079632679f, 0.5f};
+    return GeometryConfig{640.0f, 480.0f, 1.57079632679f, 0.5f, 100.0f};
 }
 
-CubeMeshView oneTriangle(const SourceVertex (&vertices)[3]) {
+MeshView oneTriangle(const SourceVertex (&vertices)[3]) {
     static const TriangleIndex indices{0, 1, 2};
-    return CubeMeshView{vertices, 3, &indices, 1};
+    return MeshView{vertices, 3, &indices, 1};
 }
 
 bool finiteTriangle(const helengine::dreamcast::ProjectedTriangle& triangle) {
@@ -226,38 +226,35 @@ void OffscreenProjectionRemainsFinite() {
     EXPECT(frame.triangles[0].vertices[1].x > 640.0f);
 }
 
-void OutputCapacityFailureEmitsNoPartialFrame() {
-    constexpr const char* testName = "OutputCapacityFailureEmitsNoPartialFrame";
-    SourceVertex vertices[75]{};
-    TriangleIndex triangles[25]{};
-    for (std::size_t i = 0; i < 25; ++i) {
-        vertices[i * 3 + 0] = {{-0.5f, -0.5f, 2.0f}, kWhite};
-        vertices[i * 3 + 1] = {{0.5f, -0.5f, 2.0f}, kWhite};
-        vertices[i * 3 + 2] = {{0.0f, 0.5f, 2.0f}, kWhite};
-        triangles[i] = TriangleIndex{
-            static_cast<std::uint16_t>(i * 3 + 0),
-            static_cast<std::uint16_t>(i * 3 + 1),
-            static_cast<std::uint16_t>(i * 3 + 2),
-        };
+void InputTriangleCapacityIsRejected() {
+    constexpr const char* testName = "InputTriangleCapacityIsRejected";
+    const SourceVertex vertices[] = {
+        {{-0.5f, -0.5f, 2.0f}, kWhite},
+        {{0.5f, -0.5f, 2.0f}, kWhite},
+        {{0.0f, 0.5f, 2.0f}, kWhite},
+    };
+    TriangleIndex triangles[129]{};
+    for (auto& triangle : triangles) {
+        triangle = TriangleIndex{0, 1, 2};
     }
-    const CubeMeshView mesh{vertices, 75, triangles, 25};
+    const MeshView mesh{vertices, 3, triangles, 129};
     GeometryFrame frame{};
     frame.triangleCount = 99;
     frame.overflow = false;
     const GeometryStatus status = helengine::dreamcast::processGeometry(
         mesh, identityMatrix(), defaultConfig(), frame);
 
-    EXPECT(status == GeometryStatus::OutputCapacityExceeded);
+    EXPECT(status == GeometryStatus::InvalidMesh);
     EXPECT(frame.triangleCount == 0);
     EXPECT(frame.rejectedTriangleCount == 0);
     EXPECT(frame.clippedTriangleCount == 0);
     EXPECT(frame.emittedVertexCount == 0);
-    EXPECT(frame.overflow);
+    EXPECT(!frame.overflow);
 }
 
 void CubeMeshReportsExpectedCountsAndValidIndices() {
     constexpr const char* testName = "CubeMeshReportsExpectedCountsAndValidIndices";
-    const CubeMeshView mesh = helengine::dreamcast::cubeMesh();
+    const MeshView mesh = helengine::dreamcast::cubeMesh();
     EXPECT(mesh.vertexCount == 24);
     EXPECT(mesh.triangleCount == 12);
     EXPECT(mesh.vertices != nullptr);
@@ -271,7 +268,7 @@ void CubeMeshReportsExpectedCountsAndValidIndices() {
 
 void NullMeshPointerIsReported() {
     constexpr const char* testName = "NullMeshPointerIsReported";
-    const CubeMeshView mesh{nullptr, 3, nullptr, 1};
+    const MeshView mesh{nullptr, 3, nullptr, 1};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -282,7 +279,7 @@ void NullMeshPointerIsReported() {
 void NullVertexPointerIsReported() {
     constexpr const char* testName = "NullVertexPointerIsReported";
     const TriangleIndex triangle{0, 0, 0};
-    const CubeMeshView mesh{nullptr, 3, &triangle, 1};
+    const MeshView mesh{nullptr, 3, &triangle, 1};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -293,7 +290,7 @@ void NullVertexPointerIsReported() {
 void NullTrianglePointerIsReported() {
     constexpr const char* testName = "NullTrianglePointerIsReported";
     const SourceVertex vertex{{0.0f, 0.0f, 2.0f}, kWhite};
-    const CubeMeshView mesh{&vertex, 1, nullptr, 1};
+    const MeshView mesh{&vertex, 1, nullptr, 1};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -309,7 +306,7 @@ void OutOfRangeIndexIsReported() {
         {{0.0f, 0.5f, 2.0f}, kWhite},
     };
     const TriangleIndex triangle{0, 1, 3};
-    const CubeMeshView mesh{vertices, 3, &triangle, 1};
+    const MeshView mesh{vertices, 3, &triangle, 1};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -398,7 +395,7 @@ void ClippingPreservesWindingForVertexPermutations() {
 
 void CubeIndicesHaveOutwardWinding() {
     constexpr const char* testName = "CubeIndicesHaveOutwardWinding";
-    const CubeMeshView mesh = helengine::dreamcast::cubeMesh();
+    const MeshView mesh = helengine::dreamcast::cubeMesh();
     const Vec3 expectedNormals[] = {
         {0.0f, 0.0f, 1.0f},  {0.0f, 0.0f, 1.0f},
         {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f, -1.0f},
@@ -468,7 +465,7 @@ int main() {
     DegenerateProjectedTriangleIsRejected();
     NonFiniteInputIsReported();
     OffscreenProjectionRemainsFinite();
-    OutputCapacityFailureEmitsNoPartialFrame();
+    InputTriangleCapacityIsRejected();
     CubeMeshReportsExpectedCountsAndValidIndices();
     NullMeshPointerIsReported();
     NullVertexPointerIsReported();

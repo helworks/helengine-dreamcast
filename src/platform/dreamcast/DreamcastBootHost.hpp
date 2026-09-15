@@ -24,7 +24,7 @@ namespace boot_detail {
 inline void makeScreenTriangleGeometry(float width,
                                        float height,
                                        GeometryFrame& frame) noexcept {
-    frame = GeometryFrame{};
+    resetGeometryFrame(frame);
     frame.triangleCount = 1;
     frame.emittedVertexCount = 3;
     frame.triangles[0].vertices[0] =

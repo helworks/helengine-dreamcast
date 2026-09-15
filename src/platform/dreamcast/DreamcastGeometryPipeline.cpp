@@ -8,6 +8,9 @@ namespace {
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kProjectedAreaEpsilon = 1.0e-5f;
 constexpr float kVertexEqualityEpsilon = 1.0e-6f;
+constexpr std::uint16_t kMaxInputVertices = 64;
+constexpr std::uint16_t kMaxInputTriangles = 128;
+constexpr std::uint8_t kClipVertexCapacity = 5;
 
 struct ClipVertex {
     Vec3 position;
@@ -51,13 +54,17 @@ bool sameVertex(const ClipVertex& a, const ClipVertex& b) noexcept {
            approximatelyEqual(a.color.a, b.color.a);
 }
 
-void appendUnique(ClipVertex* polygon, std::uint8_t& count, const ClipVertex& vertex) noexcept {
+bool appendUnique(ClipVertex* polygon,
+                  std::uint8_t& count,
+                  const ClipVertex& vertex) noexcept {
     if (count != 0 && sameVertex(polygon[count - 1], vertex)) {
-        return;
+        return true;
     }
-    if (count < 4) {
-        polygon[count++] = vertex;
+    if (count >= kClipVertexCapacity) {
+        return false;
     }
+    polygon[count++] = vertex;
+    return true;
 }
 
 ClipVertex interpolate(const ClipVertex& a, const ClipVertex& b, float t) noexcept {
@@ -79,9 +86,10 @@ ClipVertex interpolate(const ClipVertex& a, const ClipVertex& b, float t) noexce
 bool validConfig(const GeometryConfig& config) noexcept {
     return finite(config.viewportWidth) && finite(config.viewportHeight) &&
            finite(config.verticalFovRadians) && finite(config.nearPlane) &&
+           finite(config.farPlane) &&
            config.viewportWidth > 0.0f && config.viewportHeight > 0.0f &&
            config.verticalFovRadians > 0.0f && config.verticalFovRadians < kPi &&
-           config.nearPlane > 0.0f;
+           config.nearPlane > 0.0f && config.farPlane > config.nearPlane;
 }
 
 Vec3 transformPoint(const Vec3& point, const Matrix4x4& matrix) noexcept {
@@ -126,11 +134,19 @@ bool finite(const ProjectedTriangle& triangle) noexcept {
 
 } // namespace
 
-GeometryStatus processGeometry(const CubeMeshView& mesh,
+void resetGeometryFrame(GeometryFrame& frame) noexcept {
+    frame.triangleCount = 0;
+    frame.rejectedTriangleCount = 0;
+    frame.clippedTriangleCount = 0;
+    frame.emittedVertexCount = 0;
+    frame.overflow = false;
+}
+
+GeometryStatus processGeometry(const MeshView& mesh,
                                const Matrix4x4& cameraFromModel,
                                const GeometryConfig& config,
                                GeometryFrame& output) noexcept {
-    output = GeometryFrame{};
+    resetGeometryFrame(output);
 
     if (!validConfig(config)) {
         return GeometryStatus::InvalidConfig;
@@ -138,8 +154,9 @@ GeometryStatus processGeometry(const CubeMeshView& mesh,
     if (!finite(cameraFromModel)) {
         return GeometryStatus::NonFiniteInput;
     }
-    if ((mesh.vertexCount != 0 && mesh.vertices == nullptr) ||
-        (mesh.triangleCount != 0 && mesh.triangles == nullptr)) {
+    if (mesh.vertexCount == 0 || mesh.vertexCount > kMaxInputVertices ||
+        mesh.triangleCount == 0 || mesh.triangleCount > kMaxInputTriangles ||
+        mesh.vertices == nullptr || mesh.triangles == nullptr) {
         return GeometryStatus::InvalidMesh;
     }
     for (std::uint16_t i = 0; i < mesh.vertexCount; ++i) {
@@ -154,7 +171,6 @@ GeometryStatus processGeometry(const CubeMeshView& mesh,
         return GeometryStatus::InvalidConfig;
     }
 
-    GeometryFrame staged{};
     for (std::uint16_t triangleIndex = 0; triangleIndex < mesh.triangleCount;
          ++triangleIndex) {
         const TriangleIndex& index = mesh.triangles[triangleIndex];
@@ -169,58 +185,111 @@ GeometryStatus processGeometry(const CubeMeshView& mesh,
             &mesh.vertices[index.c],
         };
         ClipVertex input[3]{};
-        std::uint8_t outsideCount = 0;
+        bool clipped = false;
         for (std::uint8_t i = 0; i < 3; ++i) {
             input[i] = ClipVertex{transformPoint(source[i]->position, cameraFromModel),
                                   source[i]->color};
             if (!finite(input[i].position)) {
                 return GeometryStatus::NonFiniteInput;
             }
-            if (input[i].position.z < config.nearPlane) {
-                ++outsideCount;
+            if (input[i].position.z < config.nearPlane ||
+                input[i].position.z > config.farPlane) {
+                clipped = true;
             }
         }
 
-        ClipVertex polygon[4]{};
-        std::uint8_t polygonCount = 0;
-        ClipVertex previous = input[2];
-        bool previousInside = previous.position.z >= config.nearPlane;
-        for (const ClipVertex& current : input) {
-            const bool currentInside = current.position.z >= config.nearPlane;
-            if (currentInside != previousInside) {
-                const float a = previous.position.z - config.nearPlane;
-                const float b = current.position.z - config.nearPlane;
-                const float denominator = a - b;
-                if (denominator != 0.0f) {
-                    float t = a / denominator;
+        ClipVertex polygonA[kClipVertexCapacity]{};
+        ClipVertex polygonB[kClipVertexCapacity]{};
+        std::uint8_t polygonACount = 3;
+        for (std::uint8_t i = 0; i < 3; ++i) {
+            polygonA[i] = input[i];
+        }
+
+        const auto clipAgainstPlane = [](const ClipVertex* sourceVertices,
+                                         std::uint8_t sourceCount,
+                                         float plane,
+                                         bool keepGreater,
+                                         ClipVertex* destinationVertices,
+                                         std::uint8_t& destinationCount) noexcept {
+            destinationCount = 0;
+            if (sourceCount == 0) {
+                return true;
+            }
+            ClipVertex previous = sourceVertices[sourceCount - 1];
+            const auto distance = [plane, keepGreater](const ClipVertex& vertex) {
+                return keepGreater ? vertex.position.z - plane : plane - vertex.position.z;
+            };
+            float previousDistance = distance(previous);
+            bool previousInside = previousDistance >= 0.0f;
+            for (std::uint8_t i = 0; i < sourceCount; ++i) {
+                const ClipVertex current = sourceVertices[i];
+                const float currentDistance = distance(current);
+                const bool currentInside = currentDistance >= 0.0f;
+                if (currentInside != previousInside) {
+                    const float denominator = previousDistance - currentDistance;
+                    if (!finite(denominator) || denominator == 0.0f) {
+                        return false;
+                    }
+                    float t = previousDistance / denominator;
+                    if (!finite(t)) {
+                        return false;
+                    }
                     if (t < 0.0f) {
                         t = 0.0f;
                     } else if (t > 1.0f) {
                         t = 1.0f;
                     }
-                    appendUnique(polygon, polygonCount, interpolate(previous, current, t));
+                    if (!appendUnique(destinationVertices, destinationCount,
+                                      interpolate(previous, current, t))) {
+                        return false;
+                    }
                 }
+                if (currentInside &&
+                    !appendUnique(destinationVertices, destinationCount, current)) {
+                    return false;
+                }
+                previous = current;
+                previousDistance = currentDistance;
+                previousInside = currentInside;
             }
-            if (currentInside) {
-                appendUnique(polygon, polygonCount, current);
+            if (destinationCount > 1 &&
+                sameVertex(destinationVertices[0], destinationVertices[destinationCount - 1])) {
+                --destinationCount;
             }
-            previous = current;
-            previousInside = currentInside;
+            return true;
+        };
+
+        std::uint8_t polygonBCount = 0;
+        if (!clipAgainstPlane(polygonA, polygonACount, config.nearPlane, true, polygonB,
+                              polygonBCount)) {
+            resetGeometryFrame(output);
+            output.overflow = true;
+            return GeometryStatus::OutputCapacityExceeded;
         }
-        if (polygonCount > 1 && sameVertex(polygon[0], polygon[polygonCount - 1])) {
-            --polygonCount;
+        if (polygonBCount != polygonACount) {
+            clipped = true;
+        }
+        std::uint8_t polygonCount = 0;
+        if (!clipAgainstPlane(polygonB, polygonBCount, config.farPlane, false, polygonA,
+                              polygonCount)) {
+            resetGeometryFrame(output);
+            output.overflow = true;
+            return GeometryStatus::OutputCapacityExceeded;
+        }
+        if (polygonCount != polygonBCount) {
+            clipped = true;
         }
 
-        if (outsideCount != 0 && polygonCount != 0) {
-            ++staged.clippedTriangleCount;
+        if (clipped && polygonCount != 0) {
+            ++output.clippedTriangleCount;
         }
 
-        ProjectedTriangle candidates[2]{};
+        ProjectedTriangle candidates[3]{};
         std::uint8_t candidateCount = 0;
         if (polygonCount >= 3) {
-            ProjectedVertex projected[4]{};
+            ProjectedVertex projected[kClipVertexCapacity]{};
             for (std::uint8_t i = 0; i < polygonCount; ++i) {
-                projected[i] = projectVertex(polygon[i], config, focalLength);
+                projected[i] = projectVertex(polygonA[i], config, focalLength);
             }
             for (std::uint8_t i = 1; i + 1 < polygonCount; ++i) {
                 candidates[candidateCount] =
@@ -234,21 +303,20 @@ GeometryStatus processGeometry(const CubeMeshView& mesh,
         }
 
         if (candidateCount == 0) {
-            ++staged.rejectedTriangleCount;
+            ++output.rejectedTriangleCount;
             continue;
         }
-        if (staged.triangleCount + candidateCount > GeometryFrame::kMaxTriangles) {
-            output = GeometryFrame{};
+        if (output.triangleCount + candidateCount > GeometryFrame::kMaxTriangles) {
+            resetGeometryFrame(output);
             output.overflow = true;
             return GeometryStatus::OutputCapacityExceeded;
         }
         for (std::uint8_t i = 0; i < candidateCount; ++i) {
-            staged.triangles[staged.triangleCount++] = candidates[i];
+            output.triangles[output.triangleCount++] = candidates[i];
         }
     }
 
-    staged.emittedVertexCount = static_cast<std::uint16_t>(staged.triangleCount * 3);
-    output = staged;
+    output.emittedVertexCount = static_cast<std::uint16_t>(output.triangleCount * 3);
     return GeometryStatus::Ok;
 }
 

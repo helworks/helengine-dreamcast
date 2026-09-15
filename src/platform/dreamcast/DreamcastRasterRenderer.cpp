@@ -179,7 +179,7 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
     context.gen.culling =
         config.disableCulling
             ? PVR_CULLING_NONE
-            : (renderer_detail::kDefaultCullWinding ==
+            : (config.frontFaceWinding ==
                        renderer_detail::CullWinding::CounterClockwise
                    ? PVR_CULLING_CCW
                    : PVR_CULLING_CW);
@@ -212,7 +212,11 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
     initialized_ = true;
     dbglog(DBG_INFO, "DreamcastRasterRenderer: PVR initialized (%ux%u, culling=%s)\n",
            static_cast<unsigned>(video.width), static_cast<unsigned>(video.height),
-           config.disableCulling ? "off" : "ccw");
+           config.disableCulling
+               ? "off"
+               : (config.frontFaceWinding == renderer_detail::CullWinding::CounterClockwise
+                      ? "ccw"
+                      : "cw"));
     return true;
 }
 

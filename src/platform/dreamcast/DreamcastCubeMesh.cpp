@@ -54,8 +54,8 @@ const TriangleIndex kCubeTriangles[12] = {
 
 } // namespace
 
-CubeMeshView cubeMesh() noexcept {
-    return CubeMeshView{kCubeVertices, 24, kCubeTriangles, 12};
+MeshView cubeMesh() noexcept {
+    return MeshView{kCubeVertices, 24, kCubeTriangles, 12};
 }
 
 } // namespace helengine::dreamcast

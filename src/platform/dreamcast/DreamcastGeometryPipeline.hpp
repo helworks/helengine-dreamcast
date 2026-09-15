@@ -28,7 +28,7 @@ struct TriangleIndex {
     std::uint16_t c;
 };
 
-struct CubeMeshView {
+struct MeshView {
     const SourceVertex* vertices;
     std::uint16_t vertexCount;
     const TriangleIndex* triangles;
@@ -45,6 +45,7 @@ struct GeometryConfig {
     float viewportHeight;
     float verticalFovRadians;
     float nearPlane;
+    float farPlane;
 };
 
 struct ProjectedVertex {
@@ -59,7 +60,7 @@ struct ProjectedTriangle {
 };
 
 struct GeometryFrame {
-    static constexpr std::uint16_t kMaxTriangles = 24;
+    static constexpr std::uint16_t kMaxTriangles = 512;
     ProjectedTriangle triangles[kMaxTriangles];
     std::uint16_t triangleCount;
     std::uint16_t rejectedTriangleCount;
@@ -76,11 +77,13 @@ enum class GeometryStatus : std::uint8_t {
     InvalidMesh,
 };
 
-GeometryStatus processGeometry(const CubeMeshView& mesh,
+void resetGeometryFrame(GeometryFrame& frame) noexcept;
+
+GeometryStatus processGeometry(const MeshView& mesh,
                                const Matrix4x4& cameraFromModel,
                                const GeometryConfig& config,
                                GeometryFrame& output) noexcept;
 
-CubeMeshView cubeMesh() noexcept;
+MeshView cubeMesh() noexcept;
 
 } // namespace helengine::dreamcast

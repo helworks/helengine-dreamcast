@@ -24,7 +24,8 @@ SOURCES := \
     src/platform/dreamcast/DreamcastVideo.cpp \
     src/platform/dreamcast/DreamcastRasterRenderer.cpp \
     src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
-    src/platform/dreamcast/DreamcastCubeMesh.cpp
+    src/platform/dreamcast/DreamcastCubeMesh.cpp \
+    src/platform/dreamcast/DreamcastAuthoredTransform.cpp
 OBJECTS := $(patsubst src/%.cpp,$(OBJ_ROOT)/%.o,$(SOURCES))
 DEPS := $(OBJECTS:.o=.d)
 
@@ -78,6 +79,8 @@ AUTHORED_SOURCES := \
     src/platform/dreamcast/DreamcastInputBackend.cpp \
     src/platform/dreamcast/DreamcastRenderManager2D.cpp \
     src/platform/dreamcast/DreamcastRenderManager3D.cpp \
+    src/platform/dreamcast/DreamcastRuntimeModel.cpp \
+    src/platform/dreamcast/DreamcastRuntimeMaterial.cpp \
     src/platform/dreamcast/DreamcastRuntimeSceneCatalog.cpp \
     src/platform/dreamcast/DreamcastRuntimeHost.cpp
 AUTHORED_OBJECTS := $(patsubst src/%.cpp,$(OBJ_ROOT)/%.o,$(AUTHORED_SOURCES))
@@ -147,6 +150,15 @@ host-test:
 		src/platform/dreamcast/DreamcastCubeMesh.cpp \
 		-o $(BUILD_ROOT)/dreamcast-geometry-tests
 	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
+		tests/native/DreamcastAuthoredTransformTests.cpp \
+		src/platform/dreamcast/DreamcastAuthoredTransform.cpp \
+		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
+		-o $(BUILD_ROOT)/dreamcast-authored-transform-tests
+	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
+		tests/native/DreamcastAuthoredMeshTests.cpp \
+		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
+		-o $(BUILD_ROOT)/dreamcast-authored-mesh-tests
+	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
 		tests/native/DreamcastRasterSeamTests.cpp \
 		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
 		src/platform/dreamcast/DreamcastCubeMesh.cpp \
@@ -156,6 +168,8 @@ host-test:
 		src/platform/dreamcast/DreamcastContentPath.cpp \
 		-o $(BUILD_ROOT)/dreamcast-content-path-tests
 	$(BUILD_ROOT)/dreamcast-geometry-tests
+	$(BUILD_ROOT)/dreamcast-authored-transform-tests
+	$(BUILD_ROOT)/dreamcast-authored-mesh-tests
 	$(BUILD_ROOT)/dreamcast-raster-seam-tests
 	$(BUILD_ROOT)/dreamcast-content-path-tests
 

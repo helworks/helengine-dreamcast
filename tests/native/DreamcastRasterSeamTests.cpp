@@ -70,7 +70,7 @@ float projectedArea(const helengine::dreamcast::ProjectedTriangle& triangle) {
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-void FixedPoseFrontAndBackSignsMatchDefaultCullContract() {
+void FixedPoseAuthoredWindingConversionIsExplicit() {
     using namespace helengine::dreamcast;
     const Matrix4x4 fixedPose{{
         {1.0f, 0.0f, 0.0f, 0.0f},
@@ -78,7 +78,7 @@ void FixedPoseFrontAndBackSignsMatchDefaultCullContract() {
         {0.0f, 0.0f, 1.0f, 6.0f},
         {0.0f, 0.0f, 0.0f, 1.0f},
     }};
-    const GeometryConfig config{640.0f, 480.0f, 1.10f, 0.5f};
+    const GeometryConfig config{640.0f, 480.0f, 1.10f, 0.5f, 100.0f};
     GeometryFrame frame{};
     EXPECT(processGeometry(cubeMesh(), fixedPose, config, frame) == GeometryStatus::Ok);
     EXPECT(renderer_detail::kDefaultCullWinding ==
@@ -96,10 +96,16 @@ void FixedPoseFrontAndBackSignsMatchDefaultCullContract() {
             greenArea = projectedArea(triangle);
         }
     }
-    // The near -Z green face is the visible front at this fixed pose. The
-    // farther +Z red face has the opposite projected sign.
-    EXPECT(greenArea > 0.0f);
+    // The authored +Z red face is nearest to a camera at +Z. The generated
+    // camera -Z to native positive-depth reflection reverses its screen sign;
+    // authored submission therefore selects clockwise front faces. Diagnostic
+    // geometry retains the positive screen-space counterclockwise contract.
     EXPECT(redArea < 0.0f);
+    EXPECT(greenArea > 0.0f);
+    EXPECT(RendererConfig{}.frontFaceWinding == renderer_detail::CullWinding::CounterClockwise);
+    RendererConfig authoredConfig{};
+    authoredConfig.frontFaceWinding = renderer_detail::CullWinding::Clockwise;
+    EXPECT(authoredConfig.frontFaceWinding == renderer_detail::CullWinding::Clockwise);
 }
 
 void SimulationDeltaIsClampedToAvoidDebuggerJumps() {
@@ -140,7 +146,7 @@ int main() {
     PacketConversionInitializesEveryField();
     PacketConversionMarksOnlyThirdVertexEndOfLine();
     ThreePacketSequenceHasExactlyOneEndOfLine();
-    FixedPoseFrontAndBackSignsMatchDefaultCullContract();
+    FixedPoseAuthoredWindingConversionIsExplicit();
     SimulationDeltaIsClampedToAvoidDebuggerJumps();
     DiagnosticSnapshotLayoutIsStableForEmulatorReads();
     ScreenTriangleDiagnosticUsesFrontFacingWinding();

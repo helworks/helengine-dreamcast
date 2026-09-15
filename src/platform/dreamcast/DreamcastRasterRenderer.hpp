@@ -10,9 +10,21 @@ namespace helengine::dreamcast {
 
 struct VideoState;
 
+namespace renderer_detail {
+
+enum class CullWinding : std::uint8_t { Clockwise, CounterClockwise };
+constexpr CullWinding kDefaultCullWinding = CullWinding::CounterClockwise;
+
+} // namespace renderer_detail
+
 struct RendererConfig {
     bool disableCulling = false;
     bool reverseTriangleOrder = false;
+    // The generated camera-to-native Z reflection reverses projected winding
+    // for authored meshes. Diagnostic geometry keeps the native positive
+    // screen-space contract; authored submission selects clockwise front
+    // faces explicitly instead of changing authored indices or flipping X.
+    renderer_detail::CullWinding frontFaceWinding = renderer_detail::kDefaultCullWinding;
 };
 
 struct RendererDiagnostics {
@@ -33,9 +45,6 @@ namespace renderer_detail {
 constexpr std::uint32_t kVertexCommand = 0xe0000000u;
 constexpr std::uint32_t kVertexCommandEol = 0xf0000000u;
 constexpr float kMaxSimulationDeltaSeconds = 0.10f;
-
-enum class CullWinding : std::uint8_t { Clockwise, CounterClockwise };
-constexpr CullWinding kDefaultCullWinding = CullWinding::CounterClockwise;
 
 struct alignas(32) VertexPacket {
     std::uint32_t flags;

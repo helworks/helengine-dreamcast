@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <memory>
 
 namespace helengine::dreamcast {
 namespace {
@@ -16,6 +17,7 @@ namespace {
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kVerticalFovRadians = 1.10f;
 constexpr float kNearPlane = 0.5f;
+constexpr float kFarPlane = 100.0f;
 constexpr float kYawRadiansPerSecond = 0.70f;
 constexpr float kPitchRadiansPerSecond = 0.43f;
 
@@ -54,7 +56,7 @@ GeometryStatus makeGeometry(const HostConfig& config,
                              float pitch,
                              GeometryFrame& frame) noexcept {
     if (config.scene == HostScene::ClearOnly) {
-        frame = GeometryFrame{};
+        resetGeometryFrame(frame);
         return GeometryStatus::Ok;
     }
     if (config.scene == HostScene::ScreenTriangle) {
@@ -72,6 +74,7 @@ GeometryStatus makeGeometry(const HostConfig& config,
         static_cast<float>(video.height),
         kVerticalFovRadians,
         kNearPlane,
+        kFarPlane,
     };
     return processGeometry(cubeMesh(), cameraMatrix(yaw, pitch, x, 0.0f, z),
                            geometryConfig, frame);
@@ -125,6 +128,7 @@ int runDreamcastHost(const HostConfig& config) noexcept {
     bool running = true;
     int result = 0;
     bool reportedGeometry = false;
+    auto geometry = std::make_unique<GeometryFrame>();
 
     while (running) {
         const std::uint64_t now = timer_ns_gettime64();
@@ -145,9 +149,8 @@ int runDreamcastHost(const HostConfig& config) noexcept {
             }
         }
 
-        GeometryFrame geometry{};
         const std::uint64_t geometryStart = timer_ns_gettime64();
-        const GeometryStatus status = makeGeometry(config, videoState, yaw, pitch, geometry);
+        const GeometryStatus status = makeGeometry(config, videoState, yaw, pitch, *geometry);
         const std::uint64_t geometryEnd = timer_ns_gettime64();
         renderer_detail::setDiagnosticGeometryTime(geometryEnd - geometryStart);
         if (status != GeometryStatus::Ok) {
@@ -157,7 +160,7 @@ int runDreamcastHost(const HostConfig& config) noexcept {
             result = 3;
             break;
         }
-        if (!renderer.renderFrame(geometry)) {
+        if (!renderer.renderFrame(*geometry)) {
             dbglog(DBG_ERROR, "DreamcastHost: renderer submission failed\n");
             renderer_detail::setDiagnosticError(kDiagnosticErrorSubmission);
             result = 4;
@@ -165,8 +168,8 @@ int runDreamcastHost(const HostConfig& config) noexcept {
         }
         if (!reportedGeometry) {
             dbglog(DBG_INFO, "DreamcastHost: first geometry ready (%u triangles, %u clipped)\n",
-                   static_cast<unsigned>(geometry.triangleCount),
-                   static_cast<unsigned>(geometry.clippedTriangleCount));
+                   static_cast<unsigned>(geometry->triangleCount),
+                   static_cast<unsigned>(geometry->clippedTriangleCount));
             reportedGeometry = true;
         }
 

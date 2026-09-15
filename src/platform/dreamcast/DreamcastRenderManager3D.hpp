@@ -6,10 +6,23 @@
 
 namespace helengine::dreamcast {
 
-/// Minimum Core-compatible 3D adapter. Task 3 adds the native mesh/material bridge.
 class DreamcastRenderManager3D final : public ::RenderManager3D {
 public:
+    ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
+
+    ::RuntimeMaterial* BuildMaterialFromCooked(
+        std::string cookedAssetPath,
+        ::IContentStreamSource* contentStreamSource) override;
+
+    ::RuntimeModel* BuildModelFromCooked(
+        std::string cookedAssetPath,
+        ::IContentStreamSource* contentStreamSource) override;
+
     ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;
+
+    void ReleaseMaterial(::RuntimeMaterial* material) override;
+
+    void ReleaseModel(::RuntimeModel* model) override;
 };
 
 } // namespace helengine::dreamcast
