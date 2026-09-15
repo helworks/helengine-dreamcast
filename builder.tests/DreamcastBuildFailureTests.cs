@@ -90,21 +90,14 @@ public sealed class DreamcastBuildFailureTests {
 
     static PlatformBuildRequest CreateRequest(string root, string generatedCoreRoot = null) {
         string workingRoot = Path.Combine(root, "working");
-        string packageSource = Path.Combine(workingRoot, "package-source", "cooked", "scenes");
+        string packageSource = Path.Combine(workingRoot, "package-source");
         Directory.CreateDirectory(packageSource);
-        byte[] content = Encoding.UTF8.GetBytes("startup-scene");
-        File.WriteAllBytes(Path.Combine(packageSource, "startup.hasset"), content);
+        PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(packageSource);
         string generated = generatedCoreRoot ?? Path.Combine(root, "generated-core");
         if (generatedCoreRoot == null) {
             Directory.CreateDirectory(generated);
         }
 
-        PlatformBuildArtifact artifact = new(
-            "cooked/scenes/startup.hasset",
-            "scene/startup",
-            "sha256:" + Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant(),
-            "scene",
-            "baseline");
         PlatformBuildScene scene = new(
             "startup",
             "Startup",
@@ -121,7 +114,7 @@ public sealed class DreamcastBuildFailureTests {
             "startup",
             [scene],
             [],
-            [artifact],
+            artifacts,
             [],
             [],
             new PlatformContainerWritePlan("dc-romfs-package", []),

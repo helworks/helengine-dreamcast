@@ -12,6 +12,7 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
     readonly DreamcastSceneCompatibilityValidator SceneValidator = new();
     readonly DreamcastContentStager ContentStager;
     readonly DreamcastStartupCatalogWriter StartupCatalogWriter = new();
+    readonly DreamcastCookedContentValidator CookedContentValidator = new();
     readonly IDreamcastNativeBuildExecutor NativeBuildExecutor;
 
     /// <summary>Creates a builder using the production native executor.</summary>
@@ -80,6 +81,8 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
             IReadOnlyList<DreamcastStartupCatalogEntry> catalogEntries = SceneValidator.Validate(request.Manifest);
             string packageSourceRoot = Path.Combine(request.WorkingRoot, "package-source");
             ContentStager.Stage(request.Manifest, packageSourceRoot, contentRoot, cancellationToken);
+            DreamcastStartupCatalogEntry startupEntry = catalogEntries.Single(entry => string.Equals(entry.SceneId, request.Manifest.StartupSceneId, StringComparison.Ordinal));
+            CookedContentValidator.Validate(contentRoot, startupEntry.CookedRelativePath);
             StartupCatalogWriter.Write(catalogRoot, request.Manifest.StartupSceneId, catalogEntries);
             progressReporter.Report(new PlatformBuildProgressUpdate("Build Native ELF", "dreamcast", 0, 1, "Preparing the Dreamcast native executor."));
             NativeBuildExecutor.Build(request, contentRoot, catalogRoot, cancellationToken);
