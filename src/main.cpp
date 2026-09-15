@@ -1,6 +1,17 @@
+#if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
+#include "platform/dreamcast/DreamcastRuntimeHost.hpp"
+#else
 #include "platform/dreamcast/DreamcastBootHost.hpp"
+#endif
 
 int main() {
+#if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
+#if defined(HELENGINE_DREAMCAST_RUNTIME_INIT_PROBE)
+    return helengine::dreamcast::runDreamcastRuntimeInitProbe();
+#else
+    return 2;
+#endif
+#else
     helengine::dreamcast::HostConfig config{};
 
 #if defined(HELENGINE_SCENE_CLEAR)
@@ -31,4 +42,5 @@ int main() {
 #endif
 
     return helengine::dreamcast::runDreamcastHost(config);
+#endif
 }

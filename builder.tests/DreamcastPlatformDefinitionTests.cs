@@ -16,6 +16,8 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Equal("dc", builder.Descriptor.TargetPlatformId);
         Assert.Equal("helengine.dreamcast.builder", builder.Descriptor.BuilderId);
         Assert.Equal("0.2.0", builder.Descriptor.BuilderVersion);
+        Assert.Equal("0.4.0", builder.Descriptor.SupportedEngineVersions.MinimumVersion);
+        Assert.Equal("0.4.0", builder.Descriptor.SupportedEngineVersions.MaximumVersion);
         Assert.Equal("Sega Dreamcast", builder.Definition.DisplayName);
         Assert.Equal("dc-unlit", Assert.Single(builder.Definition.GraphicsProfiles).ProfileId);
         Assert.Equal("dc-unlit-v1", Assert.Single(builder.Definition.MaterialSchemas).SchemaId);
@@ -34,6 +36,7 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Equal(PlatformSerializationEndianness.LittleEndian, codegen.Endianness);
         Assert.Contains(codegen.Settings, setting => setting.SettingId == "pointer-size-bytes" && setting.DefaultValue == "4");
         Assert.Contains(codegen.Settings, setting => setting.SettingId == "generated-math-convention" && setting.DefaultValue == "native-column-vector");
+        Assert.Contains(codegen.Settings, setting => setting.SettingId == "native-file-stream-descriptor-apis" && setting.DefaultValue == "false");
     }
 
     /// <summary>Confirms the initial native executor validates its required build request.</summary>

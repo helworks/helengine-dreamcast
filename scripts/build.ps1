@@ -6,6 +6,12 @@ param(
     [string]$DockerImage = 'helengine-dc-sdk:v01',
     [string]$KosPath = 'C:\dev\helworks\builds\helengine-dc\dependencies\kos',
     [string]$OutputRoot,
+    [ValidateSet('Diagnostic', 'Authored')]
+    [string]$Mode = 'Diagnostic',
+    [string]$GeneratedCoreRoot,
+    [string]$ContentRoot,
+    [string]$CatalogRoot,
+    [switch]$RuntimeInitProbe,
     [ValidateSet('Cube', 'ClearOnly', 'ScreenTriangle')]
     [string]$Scene = 'Cube',
     [switch]$StaticPose,
@@ -80,6 +86,26 @@ function Get-SourceInputFingerprint {
     }
 }
 
+function Get-ExternalInputFingerprint {
+    param([string]$Root)
+    if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root -PathType Container)) {
+        return [PSCustomObject]@{ Lines = @(); Hash = 'none' }
+    }
+    $rootFullPath = [IO.Path]::GetFullPath($Root)
+    $lines = @(
+        foreach ($inputFile in Get-ChildItem -LiteralPath $rootFullPath -File -Recurse) {
+            $relativePath = [IO.Path]::GetRelativePath($rootFullPath, $inputFile.FullName).Replace('\', '/')
+            $contentHash = (Get-FileHash -LiteralPath $inputFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$relativePath=$contentHash"
+        }
+    ) | Sort-Object
+    $text = $lines -join "`n"
+    [PSCustomObject]@{
+        Lines = @($lines)
+        Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()
+    }
+}
+
 if (Test-Path -LiteralPath $buildRoot) {
     throw "Refusing to reuse existing build directory: $buildRoot"
 }
@@ -88,6 +114,42 @@ if (-not (Test-Path -LiteralPath $KosPath -PathType Container)) {
 }
 if (-not (Test-Path -LiteralPath $repoRoot -PathType Container)) {
     throw "Source root does not exist: $repoRoot"
+}
+if ($Mode -eq 'Authored') {
+    if ([string]::IsNullOrWhiteSpace($GeneratedCoreRoot) -or
+        [string]::IsNullOrWhiteSpace($ContentRoot) -or
+        [string]::IsNullOrWhiteSpace($CatalogRoot)) {
+        throw 'Authored mode requires GeneratedCoreRoot, ContentRoot and CatalogRoot.'
+    }
+    $GeneratedCoreRoot = [IO.Path]::GetFullPath($GeneratedCoreRoot)
+    $ContentRoot = [IO.Path]::GetFullPath($ContentRoot)
+    $CatalogRoot = [IO.Path]::GetFullPath($CatalogRoot)
+    if (-not (Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot 'Core.hpp') -PathType Leaf)) {
+        throw "Generated Core root does not contain Core.hpp: $GeneratedCoreRoot"
+    }
+    if (-not (Test-Path -LiteralPath $ContentRoot -PathType Container)) {
+        throw "Authored content root does not exist: $ContentRoot"
+    }
+    if (-not (Test-Path -LiteralPath $CatalogRoot -PathType Container)) {
+        throw "Authored catalog root does not exist: $CatalogRoot"
+    }
+    if ($RuntimeInitProbe) {
+        foreach ($catalogFileName in @('dc_runtime_scene_catalog.hpp', 'dc_runtime_scene_catalog.cpp')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $CatalogRoot $catalogFileName) -PathType Leaf)) {
+                throw "RuntimeInitProbe requires the dedicated Task 4 catalog ABI file '$catalogFileName' in CatalogRoot: $CatalogRoot"
+            }
+        }
+    }
+    if (-not $RuntimeInitProbe -and -not (Get-ChildItem -LiteralPath $CatalogRoot -File -Recurse | Select-Object -First 1)) {
+        throw "Authored catalog root is empty: $CatalogRoot"
+    }
+    if (-not $RuntimeInitProbe) {
+        throw 'Authored scene loading is not available until the Task 4 startup catalog is connected; use RuntimeInitProbe only for Gate A.'
+    }
+    if ($StaticPose -or $DisableCulling -or $ReverseTriangleOrder -or $NearPlaneProbe -or
+        $ScreenEdgeProbe -or $StopAfterSeconds -gt 0.0 -or $Scene -ne 'Cube') {
+        throw 'Diagnostic scene selectors cannot be used in Authored mode.'
+    }
 }
 
 $lock = Read-LockFile $lockPath
@@ -108,6 +170,19 @@ if ($actualImageId -ne $lock['LocalImageId']) {
 New-Item -ItemType Directory -Path $buildRoot -Force:$false | Out-Null
 $sourceFingerprintBefore = Get-SourceInputFingerprint
 Set-Content -LiteralPath (Join-Path $buildRoot 'source-hashes-before.txt') -Value $sourceFingerprintBefore.Lines -Encoding UTF8
+$externalRoots = @($GeneratedCoreRoot, $ContentRoot, $CatalogRoot) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+$externalFingerprintBeforeLines = @(
+    foreach ($root in $externalRoots) {
+        $fingerprint = Get-ExternalInputFingerprint $root
+        "$root=$($fingerprint.Hash)"
+    }
+) | Sort-Object
+$externalFingerprintBeforeText = $externalFingerprintBeforeLines -join "`n"
+$externalFingerprintBefore = [PSCustomObject]@{
+    Lines = $externalFingerprintBeforeLines
+    Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($externalFingerprintBeforeText))).ToLowerInvariant()
+}
+Set-Content -LiteralPath (Join-Path $buildRoot 'external-input-hashes-before.txt') -Value $externalFingerprintBefore.Lines -Encoding UTF8
 $dockerLogPath = Join-Path $buildRoot 'docker-build.log'
 $diagnosticDefines = [Collections.Generic.List[string]]::new()
 switch ($Scene) {
@@ -126,7 +201,11 @@ if ($StopAfterSeconds -gt 0.0) {
 $diagnosticText = "Scene=$Scene;StaticPose=$([bool]$StaticPose);DisableCulling=$([bool]$DisableCulling);ReverseTriangleOrder=$([bool]$ReverseTriangleOrder);NearPlaneProbe=$([bool]$NearPlaneProbe);ScreenEdgeProbe=$([bool]$ScreenEdgeProbe);StopAfterSeconds=$StopAfterSeconds;Defines=$($diagnosticDefines -join ',')"
 $diagnosticCppFlags = $diagnosticDefines -join ' '
 $makeDiagnosticArgument = if ($diagnosticCppFlags.Length -gt 0) { " CPPFLAGS='$diagnosticCppFlags'" } else { '' }
-$innerCommand = 'set -e; actual=$(git -C /opt/toolchains/dc/kos rev-parse HEAD); test "$actual" = "' + $expectedKosCommit + '"; export KOS_BASE=/opt/toolchains/dc/kos-built; source /opt/toolchains/dc/kos-built/environ.sh; make -j8 -C /src BUILD_ROOT=/out'
+$innerCommand = 'set -e; actual=$(git -C /opt/toolchains/dc/kos rev-parse HEAD); test "$actual" = "' + $expectedKosCommit + '"; export KOS_BASE=/opt/toolchains/dc/kos-built; source /opt/toolchains/dc/kos-built/environ.sh; make -j8 -C /src BUILD_ROOT=/out MODE=' + $Mode
+if ($Mode -eq 'Authored') {
+    $innerCommand = $innerCommand + ' GENERATED_CORE_ROOT=/generated CONTENT_ROOT=/content CATALOG_ROOT=/catalog'
+    if ($RuntimeInitProbe) { $innerCommand = $innerCommand + ' RUNTIME_INIT_PROBE=1' }
+}
 $innerCommand = $innerCommand + $makeDiagnosticArgument
 $dockerArgs = @(
     'run', '--rm', '--workdir', '/src',
@@ -137,16 +216,29 @@ $dockerArgs = @(
     $DockerImage,
     '-lc', $innerCommand
 )
+if ($Mode -eq 'Authored') {
+    $dockerArgs = @(
+        'run', '--rm', '--workdir', '/src',
+        '--mount', "type=bind,source=$repoRoot,target=/src,readonly",
+        '--mount', "type=bind,source=$KosPath,target=/opt/toolchains/dc/kos,readonly",
+        '--mount', "type=bind,source=$GeneratedCoreRoot,target=/generated,readonly",
+        '--mount', "type=bind,source=$ContentRoot,target=/content,readonly",
+        '--mount', "type=bind,source=$CatalogRoot,target=/catalog,readonly",
+        '--mount', "type=bind,source=$buildRoot,target=/out",
+        '--entrypoint', '/bin/bash',
+        $DockerImage,
+        '-lc', $innerCommand
+    )
+}
 $commandText = "docker $($dockerArgs -join ' ')"
-$dockerOutput = @()
 $dockerExitCode = 0
 try {
-    $dockerOutput = @(& docker @dockerArgs 2>&1)
+    & docker @dockerArgs 2>&1 | Tee-Object -FilePath $dockerLogPath
     $dockerExitCode = $LASTEXITCODE
 }
 finally {
-    if ($dockerOutput.Count -gt 0) {
-        $dockerOutput | Set-Content -LiteralPath $dockerLogPath -Encoding UTF8
+    if (-not (Test-Path -LiteralPath $dockerLogPath -PathType Leaf)) {
+        New-Item -ItemType File -Path $dockerLogPath -Force | Out-Null
     }
 }
 if ($dockerExitCode -ne 0) {
@@ -177,6 +269,18 @@ if ($sourceFingerprintBefore.Hash -ne $sourceFingerprintAfter.Hash) {
     throw "Source inputs changed during the build; refusing to attribute the ELF to one source snapshot. Before=$($sourceFingerprintBefore.Hash), After=$($sourceFingerprintAfter.Hash)"
 }
 Set-Content -LiteralPath (Join-Path $buildRoot 'source-hashes.txt') -Value $sourceFingerprintAfter.Lines -Encoding UTF8
+$externalFingerprintAfterLines = @(
+    foreach ($root in $externalRoots) {
+        $fingerprint = Get-ExternalInputFingerprint $root
+        "$root=$($fingerprint.Hash)"
+    }
+) | Sort-Object
+$externalFingerprintAfterText = $externalFingerprintAfterLines -join "`n"
+$externalFingerprintAfterHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($externalFingerprintAfterText))).ToLowerInvariant()
+if ($externalFingerprintBefore.Hash -ne $externalFingerprintAfterHash) {
+    throw "External build inputs changed during the build. Before=$($externalFingerprintBefore.Hash), After=$externalFingerprintAfterHash"
+}
+Set-Content -LiteralPath (Join-Path $buildRoot 'external-input-hashes.txt') -Value $externalFingerprintAfterLines -Encoding UTF8
 $gitCommit = ((Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'rev-parse', 'HEAD')) -join '').Trim()
 $gitStatus = (Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all')) -join "`n"
 $gitDirty = if ([string]::IsNullOrWhiteSpace($gitStatus)) { 'false' } else { 'true' }
@@ -198,6 +302,12 @@ $manifestLines = @(
     "DockerImageId=$actualImageId",
     "UpstreamBaseImage=$($lock['UpstreamBaseImage'])",
     "CompilerFlags=$($lock['CompilerFlags'])",
+    "Mode=$Mode",
+    "GeneratedCoreRoot=$GeneratedCoreRoot",
+    "ContentRoot=$ContentRoot",
+    "CatalogRoot=$CatalogRoot",
+    "RuntimeInitProbe=$([bool]$RuntimeInitProbe)",
+    "ExternalInputSha256=$externalFingerprintAfterHash",
     "DiagnosticSelectors=$diagnosticText",
     'Target=helengine_dc',
     'ELFRelativePath=helengine_dc.elf',

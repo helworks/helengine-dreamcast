@@ -24,7 +24,7 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
             "helengine.dreamcast.builder",
             "0.2.0",
             "dc",
-            new EngineCompatibilityRange("1.0.0", "999.0.0"),
+            new EngineCompatibilityRange("0.4.0", "0.4.0"),
             new ManifestCompatibilityRange(1, 1),
             ["dc"],
             ["dc"]);
