@@ -28,6 +28,9 @@ param(
     [string]$BuildProfile = "release",
 
     [Parameter()]
+    [string]$CacheRoot = "",
+
+    [Parameter()]
     [switch]$Build
 )
 
@@ -43,7 +46,9 @@ $BuildPlatformScript = Join-Path $CanonicalEngineRoot "scripts\build-platform.ps
 $SettingsRoot = Join-Path $CanonicalOutputRoot "engine-user-settings"
 $PlatformsPath = Join-Path $SettingsRoot "platforms.json"
 $BuildOutputRoot = Join-Path $CanonicalOutputRoot "build"
-$CacheRoot = Join-Path $CanonicalOutputRoot "cache"
+# A shared cache root lets several fixture variants reuse the same generated
+# Core; each variant still gets its own build output and native invocation.
+$CacheRoot = if ([string]::IsNullOrWhiteSpace($CacheRoot)) { Join-Path $CanonicalOutputRoot "cache" } else { [System.IO.Path]::GetFullPath($CacheRoot) }
 $LogPath = Join-Path $CanonicalOutputRoot "authored-build.log"
 
 if ([string]::IsNullOrWhiteSpace($BuilderAssemblyPath)) {

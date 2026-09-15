@@ -9,7 +9,15 @@ namespace helengine.dreamcast.fixture;
 /// <summary>Writes normal Helengine project, scene, model, and material documents for Dreamcast acceptance variants.</summary>
 public sealed class DreamcastAuthoredSceneFixtureWriter {
     /// <summary>Stable fixture variants accepted by the command line tool.</summary>
-    public static IReadOnlyList<string> SupportedVariants { get; } = ["baseline", "transform", "color", "camera", "geometry"];
+    public static IReadOnlyList<string> SupportedVariants { get; } = [
+        "baseline", "transform", "color", "camera", "geometry",
+        "missing-model", "wrong-startup", "lit-material", "textured-material", "transparent-material", "two-cameras", "over-limit-mesh"
+    ];
+
+    /// <summary>Variants that the build graph or builder must reject with an identified error and no success manifest.</summary>
+    public static IReadOnlyList<string> NegativeVariants { get; } = [
+        "missing-model", "wrong-startup", "lit-material", "textured-material", "transparent-material", "two-cameras", "over-limit-mesh"
+    ];
 
     const string SceneRelativePath = "scenes/startup.helen";
     const string ModelRelativePath = "models/cube.hasset";
@@ -32,11 +40,14 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
         Directory.CreateDirectory(Path.Combine(root, "assets", "scenes"));
         Directory.CreateDirectory(Path.Combine(root, "assets", "models"));
         Directory.CreateDirectory(Path.Combine(root, "assets", "materials"));
-        WriteProjectFile(root);
-
         string normalizedVariant = variant.ToLowerInvariant();
+        WriteProjectFile(root, normalizedVariant);
+
         byte[] modelBytes = CreateModelBytes(normalizedVariant);
-        string modelPath = WriteAsset(root, ModelRelativePath, modelBytes);
+        // The missing-model negative keeps the scene reference but never writes the file.
+        string modelPath = normalizedVariant == "missing-model"
+            ? "(deliberately absent)"
+            : WriteAsset(root, ModelRelativePath, modelBytes);
         byte[] materialBytes = CreateMaterialCommonBytes(normalizedVariant);
         string materialPath = WriteAsset(root, MaterialRelativePath, materialBytes);
         WriteMaterialOverride(root, normalizedVariant);
@@ -71,7 +82,8 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
 
     /// <summary>Writes the canonical project file and explicit Dreamcast startup routing.</summary>
     /// <param name="root">Fixture project root.</param>
-    static void WriteProjectFile(string root) {
+    /// <param name="variant">Selected fixture variant.</param>
+    static void WriteProjectFile(string root, string variant) {
         DateTime timestamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         ProjectFileDocument document = new() {
             Name = "Dreamcast Authored Scene Fixture",
@@ -84,7 +96,8 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
             SceneRouting = new ProjectSceneRoutingDocument {
                 Platforms = new Dictionary<string, ProjectPlatformSceneRoutingDocument>(StringComparer.Ordinal) {
                     ["dc"] = new ProjectPlatformSceneRoutingDocument {
-                        BootSceneId = "scenes/startup"
+                        // The wrong-startup negative routes boot to a scene that does not exist.
+                        BootSceneId = variant == "wrong-startup" ? "scenes/missing" : "scenes/startup"
                     }
                 }
             }
@@ -138,11 +151,24 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
         SceneEntityAsset meshEntity = CreateEntity("mesh", "Authored Cube", meshPosition, new float3(1f, 1.25f, 1f), [CreateComponent(MeshTypeId, authoring.CreateMeshPayload(modelReference, materialReference))]);
         meshEntity.LocalOrientation = meshRotation;
 
+        List<SceneEntityAsset> rootEntities = [cameraEntity, meshEntity];
+        if (variant == "two-cameras") {
+            CameraComponent secondCamera = new() {
+                CameraDrawOrder = 1,
+                LayerMask = ushort.MaxValue,
+                Viewport = new float4(0f, 0f, 1f, 1f),
+                NearPlaneDistance = 0.1f,
+                FarPlaneDistance = 100f,
+                ClearSettings = new CameraClearSettings(true, new float4(0.03f, 0.05f, 0.08f, 1f), true, 1f, false, 0)
+            };
+            rootEntities.Add(CreateEntity("camera-2", "Second Camera", new float3(0f, 2f, 6f), float3.One, [CreateComponent(CameraTypeId, authoring.CreateCameraPayload(secondCamera))]));
+        }
+
         SceneAsset scene = new() {
             Id = "scenes/startup.helen",
             AuthoringAssetId = CreateAssetId("scenes/startup.helen"),
             FormerAuthoringAssetIds = Array.Empty<string>(),
-            RootEntities = [cameraEntity, meshEntity],
+            RootEntities = [.. rootEntities],
             AssetReferences = [modelReference, materialReference],
             SceneSettings = new SceneSettingsAsset()
         };
@@ -191,6 +217,9 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
     /// <param name="variant">Selected fixture variant.</param>
     /// <returns>Current model asset bytes.</returns>
     static byte[] CreateModelBytes(string variant) {
+        if (variant == "over-limit-mesh") {
+            return CreateOverLimitModelBytes();
+        }
         float x = variant == "geometry" ? 0.5f : 1f;
         float3[] positions = [
             new(-x, -1f, -1f), new(x, -1f, -1f), new(x, 1f, -1f), new(-x, 1f, -1f),
@@ -218,6 +247,46 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
         return helengine.files.AssetSerializer.SerializeToBytes(model);
     }
 
+    /// <summary>Creates a fan mesh with 130 triangles and 131 positions, above both v0.2 limits.</summary>
+    /// <returns>Current model asset bytes.</returns>
+    static byte[] CreateOverLimitModelBytes() {
+        const int ringCount = 130;
+        float3[] positions = new float3[ringCount + 1];
+        positions[0] = float3.Zero;
+        for (int index = 0; index < ringCount; index++) {
+            double angle = index * (2d * Math.PI / ringCount);
+            positions[index + 1] = new float3((float)Math.Cos(angle), (float)Math.Sin(angle), 0f);
+        }
+        ushort[] indices = new ushort[ringCount * 3];
+        for (int index = 0; index < ringCount; index++) {
+            indices[index * 3] = 0;
+            indices[index * 3 + 1] = (ushort)(index + 1);
+            indices[index * 3 + 2] = (ushort)(((index + 1) % ringCount) + 1);
+        }
+        ModelAsset model = new() {
+            Id = "models/cube.hasset",
+            AuthoringAssetId = CreateAssetId(ModelRelativePath),
+            FormerAuthoringAssetIds = Array.Empty<string>(),
+            Positions = positions,
+            Normals = Array.Empty<float3>(),
+            TexCoords = Array.Empty<float2>(),
+            Indices16 = indices,
+            Indices32 = Array.Empty<uint>(),
+            Submeshes = [new ModelSubmeshAsset { MaterialSlotName = "Default", IndexStart = 0, IndexCount = indices.Length }]
+        };
+        return helengine.files.AssetSerializer.SerializeToBytes(model);
+    }
+
+    /// <summary>Selects the authored base color: green for the color variant, translucent red for the transparent negative, otherwise opaque red.</summary>
+    /// <param name="variant">Selected fixture variant.</param>
+    /// <returns>Hexadecimal RGBA string.</returns>
+    static string BaseColorFor(string variant) {
+        if (variant == "color") {
+            return "#20D050FF";
+        }
+        return variant == "transparent-material" ? "#D02020FE" : "#D02020FF";
+    }
+
     /// <summary>Creates the shared authored material settings document.</summary>
     /// <param name="variant">Selected fixture variant.</param>
     /// <returns>Current material settings bytes.</returns>
@@ -233,7 +302,7 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
                 SchemaId = "dc-unlit-v1"
             }
         };
-        document.Processor.FieldValues["base-color"] = variant == "color" ? "#20D050FF" : "#D02020FF";
+        document.Processor.FieldValues["base-color"] = BaseColorFor(variant);
         return SerializeCommonMaterial(document);
     }
 
@@ -249,10 +318,10 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
                 SchemaId = "dc-unlit-v1"
             }
         };
-        document.Processor.FieldValues["base-color"] = variant == "color" ? "#20D050FF" : "#D02020FF";
-        document.Processor.FieldValues["texture-relative-path"] = string.Empty;
-        document.Processor.FieldValues["lighting-mode"] = "unlit";
-        document.Processor.FieldValues["transparency"] = "opaque";
+        document.Processor.FieldValues["base-color"] = BaseColorFor(variant);
+        document.Processor.FieldValues["texture-relative-path"] = variant == "textured-material" ? "textures/cube.png" : string.Empty;
+        document.Processor.FieldValues["lighting-mode"] = variant == "lit-material" ? "lit" : "unlit";
+        document.Processor.FieldValues["transparency"] = variant == "transparent-material" ? "transparent" : "opaque";
         document.Processor.FieldValues["double-sided"] = "false";
         document.Processor.FieldValues["vertex-color-mode"] = "ignore";
         using MemoryStream stream = new();
