@@ -1,6 +1,7 @@
 #include "platform/dreamcast/DreamcastRasterRenderer.hpp"
 
 #include "platform/dreamcast/DreamcastCubeMesh.hpp"
+#include "platform/dreamcast/DreamcastBootHost.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -120,6 +121,19 @@ void DiagnosticSnapshotLayoutIsStableForEmulatorReads() {
     EXPECT(renderer_detail::kDiagnosticVersion == 1u);
 }
 
+void ScreenTriangleDiagnosticUsesFrontFacingWinding() {
+    using namespace helengine::dreamcast;
+    GeometryFrame frame{};
+    boot_detail::makeScreenTriangleGeometry(640.0f, 480.0f, frame);
+
+    EXPECT(frame.triangleCount == 1);
+    EXPECT(frame.emittedVertexCount == 3);
+    EXPECT(projectedArea(frame.triangles[0]) > 0.0f);
+    EXPECT(frame.triangles[0].vertices[0].color.r == 1.0f);
+    EXPECT(frame.triangles[0].vertices[1].color.b == 1.0f);
+    EXPECT(frame.triangles[0].vertices[2].color.g == 1.0f);
+}
+
 } // namespace
 
 int main() {
@@ -129,6 +143,7 @@ int main() {
     FixedPoseFrontAndBackSignsMatchDefaultCullContract();
     SimulationDeltaIsClampedToAvoidDebuggerJumps();
     DiagnosticSnapshotLayoutIsStableForEmulatorReads();
+    ScreenTriangleDiagnosticUsesFrontFacingWinding();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " assertion(s) failed\n";

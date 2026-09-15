@@ -212,7 +212,7 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
     initialized_ = true;
     dbglog(DBG_INFO, "DreamcastRasterRenderer: PVR initialized (%ux%u, culling=%s)\n",
            static_cast<unsigned>(video.width), static_cast<unsigned>(video.height),
-           config.disableCulling ? "off" : "cw");
+           config.disableCulling ? "off" : "ccw");
     return true;
 }
 

@@ -48,20 +48,6 @@ bool startPressed() noexcept {
     return state != nullptr && (state->buttons & CONT_START) != 0;
 }
 
-void makeScreenTriangle(const VideoState& video, GeometryFrame& frame) noexcept {
-    frame = GeometryFrame{};
-    const float width = static_cast<float>(video.width);
-    const float height = static_cast<float>(video.height);
-    frame.triangleCount = 1;
-    frame.emittedVertexCount = 3;
-    frame.triangles[0].vertices[0] =
-        ProjectedVertex{width * 0.5f, height * 0.20f, 1.0f, {1.0f, 0.1f, 0.1f, 1.0f}};
-    frame.triangles[0].vertices[1] =
-        ProjectedVertex{width * 0.25f, height * 0.75f, 1.0f, {0.1f, 1.0f, 0.1f, 1.0f}};
-    frame.triangles[0].vertices[2] =
-        ProjectedVertex{width * 0.75f, height * 0.75f, 1.0f, {0.1f, 0.2f, 1.0f, 1.0f}};
-}
-
 GeometryStatus makeGeometry(const HostConfig& config,
                              const VideoState& video,
                              float yaw,
@@ -72,7 +58,8 @@ GeometryStatus makeGeometry(const HostConfig& config,
         return GeometryStatus::Ok;
     }
     if (config.scene == HostScene::ScreenTriangle) {
-        makeScreenTriangle(video, frame);
+        boot_detail::makeScreenTriangleGeometry(static_cast<float>(video.width),
+                                                static_cast<float>(video.height), frame);
         return GeometryStatus::Ok;
     }
 
