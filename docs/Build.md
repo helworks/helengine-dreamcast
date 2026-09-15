@@ -18,7 +18,7 @@ pwsh -File .\scripts\build.ps1 -BuildId dreamcast-v01-20260915-001 -DockerImage 
 pwsh -File .\scripts\launch_in_emulator.ps1 -BuildId dreamcast-v01-20260915-001 -FlycastPath C:\dev\helworks\builds\helengine-dc\dependencies\flycast-2.7\flycast.exe -Visible
 ```
 
-`build.ps1` refuses to reuse an existing build ID. It mounts source and KOS read-only, mounts only the selected external build directory for writes, checks the exact KOS commit and local image ID, runs the pinned `sh-elf-readelf`, and writes `build-manifest.txt` with the ELF hash, source commit, KOS commit, image identifiers, compiler flags, and command. The ELF, map, logs, and manifest are under `C:\dev\helworks\builds\helengine-dc\<build-id>`.
+`build.ps1` refuses to reuse an existing build ID. It mounts source and KOS read-only, mounts only the selected external build directory for writes, checks the exact KOS commit and local image ID, runs the pinned `sh-elf-readelf`, and writes `build-manifest.txt` with the ELF hash, source commit, dirty status, source-input aggregate hash, KOS commit, image identifiers, compiler flags, and command. `source-hashes.txt` records the SHA-256 of each `Makefile`, `src`, and `tests` input. The ELF, map, logs, and manifest are under `C:\dev\helworks\builds\helengine-dc\<build-id>`.
 
 The image contains a compiled KOS copy at `/opt/toolchains/dc/kos-built`. The validated checkout is still mounted read-only at `/opt/toolchains/dc/kos` and its commit is checked before the build; the image-local copy prevents a read-only source mount from hiding the compiled libraries. Diagnostic selectors are recorded in the manifest and map to the native compile-time configuration:
 

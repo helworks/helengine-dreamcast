@@ -153,14 +153,31 @@ $elfHash = (Get-FileHash -LiteralPath $elfPath -Algorithm SHA256).Hash.ToLowerIn
 $gitCommit = ((Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'rev-parse', 'HEAD')) -join '').Trim()
 $gitStatus = (Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all')) -join "`n"
 $gitDirty = if ([string]::IsNullOrWhiteSpace($gitStatus)) { 'false' } else { 'true' }
-$statusHash = if ([string]::IsNullOrWhiteSpace($gitStatus)) { 'none' } else { [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($gitStatus))).ToLowerInvariant() }
+$statusListingHash = if ([string]::IsNullOrWhiteSpace($gitStatus)) { 'none' } else { [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($gitStatus))).ToLowerInvariant() }
+$sourceInputFiles = @(
+    Get-Item -LiteralPath (Join-Path $repoRoot 'Makefile')
+    Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse
+    Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -File -Recurse
+)
+$sourceHashLines = @(
+    foreach ($sourceInputFile in $sourceInputFiles) {
+        $relativePath = [IO.Path]::GetRelativePath($repoRoot, $sourceInputFile.FullName).Replace('\', '/')
+        $contentHash = (Get-FileHash -LiteralPath $sourceInputFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$relativePath=$contentHash"
+    }
+) | Sort-Object
+$sourceHashText = $sourceHashLines -join "`n"
+$sourceInputHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($sourceHashText))).ToLowerInvariant()
+Set-Content -LiteralPath (Join-Path $buildRoot 'source-hashes.txt') -Value $sourceHashLines -Encoding UTF8
 $manifestLines = @(
     'ManifestVersion=1',
     "BuildId=$BuildId",
     "SourceRoot=$repoRoot",
     "GitCommit=$gitCommit",
     "GitDirty=$gitDirty",
-    "GitStatusSha256=$statusHash",
+    "GitStatusListingSha256=$statusListingHash",
+    "SourceInputSha256=$sourceInputHash",
+    'SourceInputHashManifest=source-hashes.txt',
     "KosCommit=$expectedKosCommit",
     "DockerImage=$DockerImage",
     "DockerImageId=$actualImageId",
