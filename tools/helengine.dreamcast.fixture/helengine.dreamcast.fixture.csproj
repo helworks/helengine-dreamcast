@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <HelengineRoot Condition="'$(HelengineRoot)' == '' and '$(HELENGINE_ROOT)' != ''">$(HELENGINE_ROOT)</HelengineRoot>
+    <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\helengine</HelengineRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.core\helengine.core.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.files\helengine.files.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.projectfile\helengine.projectfile.csproj" />
+  </ItemGroup>
+  <Target Name="ValidateHelengineRoot" BeforeTargets="CollectPackageReferences">
+    <Error Condition="!Exists('$(HelengineRoot)\engine\helengine.core\helengine.core.csproj')" Text="helengine checkout not found. Set HelengineRoot or HELENGINE_ROOT." />
+  </Target>
+</Project>
