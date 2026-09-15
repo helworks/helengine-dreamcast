@@ -1,0 +1,135 @@
+# Dreamcast v0.2 authored scene build
+
+This document describes how a normal Helengine project becomes a Dreamcast ELF
+that boots generated Core, loads its startup scene from an embedded ROMFS and
+renders that scene through the PVR. It complements [Build.md](Build.md), which
+covers the standalone Diagnostic cube, and [Validation.md](Validation.md), which
+records the evidence rows.
+
+## What v0.2 supports
+
+- Platform `dc`, builder `helengine.dreamcast.builder` 0.2.0, engine 0.4.0,
+  graphics profile `dc-unlit`, material schema `dc-unlit-v1`.
+- One startup scene with exactly one enabled camera component and exactly one
+  enabled static mesh component. Transform-only parent entities are allowed.
+- One model with 1..64 positions, 1..128 triangles, exactly one nonempty index
+  buffer and one submesh covering the whole triangle list.
+- One opaque, unlit, untextured, single-sided material whose authored RGB is
+  used as a flat vertex color. Vertex-color, lit, textured, double-sided or
+  translucent materials are rejected at cook time and again at build time.
+- Camera: authored rigid world transform, near/far planes and clear RGB, full
+  viewport, back buffer only, color and depth clear enabled, no stencil. The
+  vertical field of view is fixed at 45 degrees with a 640/480 aspect ratio.
+- Model transforms must be finite affine with a positive determinant. Nonuniform
+  scale is fine; mirrored or singular transforms are rejected per frame.
+- Budgets: one MiB of embedded cooked content, eight MiB resident ELF span
+  including BSS and ROMFS, at least four MiB free heap after startup.
+- Start on controller port 0 exits the game cleanly. No other input, no audio,
+  physics, scripts, UI, animation, textures, lighting or scene switching.
+
+## Pipeline
+
+1. The editor build graph discovers `dc` from an isolated `platforms.json`,
+   regenerates Core C++ with the Dreamcast codegen profile (C++20, 4-byte
+   pointers, little endian, `native-file-stream-descriptor-apis=false`), cooks
+   the scene, model and platform material, and stages the package source.
+2. `DreamcastPlatformAssetBuilder.BuildAsync` validates the manifest, resolves
+   each scene to its `cooked-relative-path` artifact, stages only declared
+   artifacts into a fresh `dreamcast-build-<guid>/content` tree, validates the
+   staged scene/model/material with the normal deserializers, and writes the
+   external startup catalog (`dc_runtime_scene_catalog.hpp/.cpp`).
+3. `DreamcastNativeBuildExecutor` runs `scripts/build.ps1 -Mode Authored` from
+   `HELENGINE_DC_REPOSITORY_ROOT` with the PowerShell 7 host named by
+   `HELENGINE_DC_POWERSHELL`. The Makefile compiles the generated unity file
+   plus the finalized late units exactly once, embeds the staged content as a
+   ROMFS with the pinned `genromfs`/`bin2c` and KOS `romdiskbase.c`, links the
+   ELF and records source/external input hashes before and after compilation.
+4. The build output is `<Output>/authored-<guid>/` with `helengine_dc.elf`,
+   `helengine_dc.map`, `build-manifest.txt`, `romdisk.img` and the docker log.
+
+## Commands
+
+All paths below assume the isolated layout used for v0.2 acceptance:
+`$dcRoot` is the Dreamcast checkout, `$v02` is
+`C:\dev\helworks\builds\helengine-dc\v02`, and `pwsh` is a PowerShell 7 host
+(`pwsh` is not on PATH on the acceptance machine; the executor is given the
+host explicitly).
+
+Write a fixture and run the generic graph:
+
+```powershell
+& "$v02\dotnet-fixture\bin\helengine.dreamcast.fixture\debug\helengine.dreamcast.fixture.exe" --output "$v02\fixtures\baseline" --variant baseline
+pwsh -NoProfile -File "$dcRoot\scripts\prepare-authored-fixture.ps1" `
+    -FixtureRoot "$v02\fixtures\baseline" -OutputRoot "$v02\graph-baseline" -CacheRoot "$v02\cache" `
+    -EngineRoot "$v02\helengine-source" `
+    -BuilderAssemblyPath "$v02\root-dotnet-check\bin\helengine.dreamcast.builder\debug\helengine.dreamcast.builder.dll" `
+    -CodegenToolPath "$v02\csharpcodegen-source\codegen\bin\Release\net9.0\codegen.exe" -Build
+```
+
+`prepare-authored-fixture.ps1` writes the scoped `platforms.json`, sets and
+restores `HELENGINE_ENGINE_USER_SETTINGS_ROOT`, `HELENGINE_DC_REPOSITORY_ROOT`
+and `HELENGINE_DC_POWERSHELL`, and invokes `scripts/build-platform.ps1` from the
+engine checkout. Passing the same `-CacheRoot` and the same fixture path for
+several variants reuses the generated Core; each run still gets its own build
+output, staging directory and native invocation.
+
+Verify a build in a hidden bounded emulator session:
+
+```powershell
+pwsh -NoProfile -File "$dcRoot\scripts\verify-authored-scene.ps1" `
+    -BuildRoot "$v02\graph-baseline\build\authored-<guid>" `
+    -FlycastPath C:\dev\helworks\emus\dreamcast\flycast.exe `
+    -EvidenceRoot "$v02\verify-baseline"
+```
+
+The verifier checks the manifest and ELF hash first, resolves the diagnostic
+symbols with the pinned `sh-elf-nm`, runs Flycast hidden with a Lua probe,
+captures raw RGB565 frames through the 32-bit VRAM aperture at the requested
+loop frames, injects Start, and requires the runtime probe (status 5, stage 6)
+and authored snapshot (stage 9, error 0) terminal states. `-NoController`
+configures all four maple ports as absent and requires the frame counter to
+reach `-StartAfterFrames` instead. `-StartAfterFrames 3600` produces a sixty
+second run.
+
+Launch visibly for a person:
+
+```powershell
+pwsh -NoProfile -File "$dcRoot\scripts\launch_in_emulator.ps1" `
+    -BuildId authored-<guid> -OutputRoot "$v02\graph-baseline\build" `
+    -FlycastPath C:\dev\helworks\emus\dreamcast\flycast.exe -Visible
+```
+
+`-OutputRoot` is the directory that contains the `authored-<guid>` directory.
+The launcher re-hashes the ELF and Flycast before starting.
+
+## Runtime behaviour
+
+`main` calls `runDreamcastAuthoredScene`, which initializes video and the PVR
+renderer (clockwise authored front faces, because the generated camera-to-native
+Z reflection reverses screen winding), builds the generated scene catalog from
+the external ABI, initializes Core with the generated startup metadata, loads
+the startup scene, requires one loaded scene/camera/drawable/model/material, and
+then runs `Core::Update(delta)`, `Core::Draw()`, `Core::CompleteFrameBoundary()`
+per frame with a monotonic delta bounded to 100 ms. `Core::Draw` reaches
+`DreamcastRenderManager3D::Draw`, which gathers the camera and its ordered
+render queue, validates everything through the generated-header-free
+`AuthoredFrameAssembler`, runs the bounded geometry pipeline and presents one
+PVR scene with the authored clear color. On Start the host drains the PVR,
+unloads the scene, verifies zero owned references, disposes Core, stops PVR and
+video, and publishes the terminal snapshots.
+
+Three diagnostic symbols are exported and resolved per ELF: the v0.1
+`helengine_dreamcast_diagnostics` renderer snapshot, the runtime probe
+`helengine_dreamcast_runtime_probe`, and the authored snapshot
+`helengine_dreamcast_authored_snapshot` (magic `HEAS`, version 1: stage, error,
+scene digest, camera/drawable counts, triangle counts, presented frames, first
+presented frame, clear ARGB, checked free heap, loop frames).
+
+## Failure behaviour
+
+Every unsupported input fails with an identified error and no success
+manifest: missing authored roots, absent `Core.hpp`, absent catalog ABI,
+compiler failure, manifest scenes without a unique cooked path, more or fewer
+than one camera or mesh, over-limit models, lit/textured/translucent materials,
+a missing referenced cooked file, or a boot scene that does not exist. The
+Diagnostic build mode and its selectors are unchanged and remain available.

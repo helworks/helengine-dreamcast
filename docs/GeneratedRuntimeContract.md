@@ -241,5 +241,56 @@ invalid model cases passed under ASan/UBSan. Its only leak report is the known
 
 Task 2 proves generated Core initialization, one complete frame boundary,
 ordered disposal, the supplied catalog ABI and the memory gate. Task 3 adds the
-authored matrix/mesh bridge and owned model/material adapters. Task 4 owns
-replacing the probe catalog with the manifest-owned startup catalog.
+authored matrix/mesh bridge and owned model/material adapters. Task 4 replaces
+the probe catalog with the manifest-owned startup catalog and boots the normal
+game.
+
+## Manifest-owned package and normal boot (Task 4)
+
+The builder resolves every manifest scene to exactly one cooked artifact
+through the scene's `cooked-relative-path` metadata, stages only the declared
+`CookedArtifacts` from `WorkingRoot/package-source` into a fresh
+`dreamcast-build-<guid>/content` tree (hash verified, one MiB budget, epoch
+timestamps, no reparse points, no root overlap), and writes the external
+startup catalog into `dreamcast-build-<guid>/catalog`. The native executor runs
+`scripts/build.ps1 -Mode Authored` from `HELENGINE_DC_REPOSITORY_ROOT` with the
+PowerShell host named by `HELENGINE_DC_POWERSHELL`; `prepare-authored-fixture.ps1`
+sets both around the generic graph. The Makefile embeds the staged tree with the
+pinned `genromfs`/`bin2c` utilities and KOS `romdiskbase.c`, which owns the `/rd`
+automount; no `KOS_INIT_ROMDISK` macro is used.
+
+`runDreamcastAuthoredScene` converts the C catalog ABI into the generated
+`RuntimeSceneCatalog` (the generated catalog copies the entry array but not
+the entries, so the host disposes entries after the catalog), initializes Core
+with `PlatformInfo("dc", "1.0.0")` to match the generated startup manifest,
+loads the startup scene through `SceneManager::LoadScene`, commits at the
+explicit frame boundary and requires exactly one loaded scene, camera,
+drawable, owned model and owned material before entering the frame loop.
+
+Boot evidence for the normal game (no `RuntimeInitProbe`):
+
+```text
+Direct build   v02/execution/task4-authored-01   ELF SHA-256 6ae09f285c4a08489148210710b40b624b148bf7b67478b18fc7e53d05edbc93
+Pipeline build v02/root-graph-task4-v2/build/authored-a11df066839b4e738fd37ea5105cb4eb (same SHA-256, GitCommit f225880, GitDirty=false)
+Resident span  0x8c010000..0x8c1f5acc = 1,989,324 bytes (1.897 MiB) including BSS and the 2 KiB ROMFS
+Symbols        _helengine_dreamcast_runtime_probe 0x8c1f0ed4, _helengine_dreamcast_authored_scene_ready 0x8c1f0f24,
+               _helengine_dreamcast_authored_frame_count 0x8c1f0f28 (pinned sh-elf-nm)
+```
+
+The hidden bounded Lua probe `v02/execution/task4-boot-01/authored-boot-probe.lua`
+(`authored-boot-probe.csv`) observed Core-ready and scene-ready at vblank 35,
+the authored frame counter advancing 1, 60, 120, 180, checked free heap
+14,545,264 bytes at Core-ready and 14,540,760 bytes while running, then
+injected Start at frame 180 and observed the terminal snapshot at vblank 262:
+status 5, error 0, stage 6, coreReady/frameComplete/coreDisposed/cleanShutdown
+all 1, shutdown free heap 14,544,392 bytes. The scene unload check inside the
+host (zero loaded scenes and zero owned model/material references) passed
+because a failure there would have reported error status.
+
+The full generic graph (`prepare-authored-fixture.ps1 -Build`, log
+`v02/execution/task4-graph-v2-console.log`) completed generation, cooking,
+staging, catalog writing and the native executor with exit code 0. The
+pipeline ELF was launched visibly through `launch_in_emulator.ps1 -Visible`
+as `DESKTOP-HELENA\Helena` with a nonzero main window handle titled
+`Flycast - helengine_dc`. This gate covers boot, scene load, the running frame
+loop and clean Start shutdown; the screen is clear-only until Task 5.
