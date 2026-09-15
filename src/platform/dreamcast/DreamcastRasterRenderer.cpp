@@ -1,0 +1,244 @@
+#include "DreamcastRasterRenderer.hpp"
+
+#include "DreamcastVideo.hpp"
+
+#include <dc/pvr.h>
+#include <kos/dbglog.h>
+#include <kos/timer.h>
+
+#include <cstddef>
+#include <cstring>
+
+namespace helengine::dreamcast {
+namespace {
+
+static_assert(sizeof(pvr_vertex_t) == sizeof(renderer_detail::VertexPacket),
+              "renderer packet must match KOS pvr_vertex_t");
+static_assert(alignof(pvr_vertex_t) == alignof(renderer_detail::VertexPacket),
+              "renderer packet alignment must match KOS pvr_vertex_t");
+
+constexpr std::size_t kConservativeVertexBufferBytes = 64u * 1024u;
+constexpr std::uint32_t kLogEveryFrames = 300u;
+
+bool finite(const ColorRgba& color) noexcept {
+    return std::isfinite(color.r) && std::isfinite(color.g) &&
+           std::isfinite(color.b) && std::isfinite(color.a);
+}
+
+bool finite(const ProjectedVertex& vertex) noexcept {
+    return std::isfinite(vertex.x) && std::isfinite(vertex.y) &&
+           std::isfinite(vertex.z) && vertex.z > 0.0f && finite(vertex.color);
+}
+
+bool validGeometryFrame(const GeometryFrame& geometry) noexcept {
+    if (geometry.overflow || geometry.triangleCount > GeometryFrame::kMaxTriangles ||
+        geometry.emittedVertexCount != geometry.triangleCount * 3u) {
+        return false;
+    }
+    for (std::uint16_t i = 0; i < geometry.triangleCount; ++i) {
+        for (const ProjectedVertex& vertex : geometry.triangles[i].vertices) {
+            if (!finite(vertex)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+std::uint32_t toUint32(std::size_t value) noexcept {
+    constexpr std::size_t kMax = 0xffffffffu;
+    return static_cast<std::uint32_t>(value > kMax ? kMax : value);
+}
+
+} // namespace
+
+bool DreamcastRasterRenderer::initialize(const VideoState& video,
+                                         const RendererConfig& config) noexcept {
+    if (initialized_ || !video.initialized || video.width == 0 || video.height == 0) {
+        return false;
+    }
+
+    // KOS's pvr_default_params has 512 KiB of vertex storage and enables the
+    // translucent list. Copy it, then keep only the opaque list with a small
+    // fixed buffer suitable for this renderer. PVR direct pvr_prim() submission
+    // is used below; no DMA or store-queue calls are issued by the application.
+    pvr_init_params_t params = pvr_default_params;
+    params.opb_sizes[0] = PVR_BINSIZE_16;
+    params.opb_sizes[1] = PVR_BINSIZE_0;
+    params.opb_sizes[2] = PVR_BINSIZE_0;
+    params.opb_sizes[3] = PVR_BINSIZE_0;
+    params.opb_sizes[4] = PVR_BINSIZE_0;
+    params.vertex_buf_size = static_cast<int>(kConservativeVertexBufferBytes);
+    params.dma_enabled = 0;
+    params.fsaa_enabled = 0;
+    params.autosort_disabled = 0;
+    params.opb_overflow_count = 1;
+    params.vbuf_doublebuf_disabled = 0;
+
+    if (pvr_init(&params) != 0) {
+        dbglog(DBG_ERROR, "DreamcastRasterRenderer: pvr_init failed\n");
+        return false;
+    }
+
+    pvr_set_bg_color(0.015f, 0.020f, 0.040f);
+
+    pvr_poly_cxt_t context{};
+    pvr_poly_cxt_col(&context, PVR_LIST_OP_POLY);
+    // The geometry pipeline flips pixel Y, so its outward cube winding is
+    // counterclockwise in screen coordinates. PVR_CULLING_CW removes the
+    // opposite (back-facing) winding. Diagnostics can disable only culling.
+    context.gen.culling = config.disableCulling ? PVR_CULLING_NONE : PVR_CULLING_CW;
+    context.gen.shading = PVR_SHADE_GOURAUD;
+    context.gen.clip_mode = PVR_USERCLIP_DISABLE;
+    context.gen.specular = false;
+    context.gen.fog_type = PVR_FOG_DISABLE;
+    context.gen.color_clamp = false;
+    context.gen.alpha = false;
+    context.fmt.color = PVR_CLRFMT_ARGBPACKED;
+    context.fmt.uv = false;
+    context.fmt.modifier = false;
+    context.depth.comparison = PVR_DEPTHCMP_GREATER;
+    context.depth.write = PVR_DEPTHWRITE_ENABLE;
+    context.blend.src = PVR_BLEND_ONE;
+    context.blend.dst = PVR_BLEND_ZERO;
+    context.blend.src_enable = false;
+    context.blend.dst_enable = false;
+    context.txr.enable = false;
+
+    // pvr_poly_hdr_t is a 32-byte cache-line object and pvr_poly_compile()
+    // allocates/writes its cache line. Clear the complete storage first, then
+    // compile one immutable opaque header for every frame.
+    std::memset(cachedHeader_, 0, sizeof(cachedHeader_));
+    pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(cachedHeader_), &context);
+
+    config_ = config;
+    diagnostics_ = RendererDiagnostics{};
+    frameCounter_ = 0;
+    initialized_ = true;
+    dbglog(DBG_INFO, "DreamcastRasterRenderer: PVR initialized (%ux%u, culling=%s)\n",
+           static_cast<unsigned>(video.width), static_cast<unsigned>(video.height),
+           config.disableCulling ? "off" : "cw");
+    return true;
+}
+
+bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry) noexcept {
+    if (!initialized_ || !validGeometryFrame(geometry)) {
+        return false;
+    }
+
+    // Validate the entire frame before opening a scene. This guarantees that a
+    // malformed pointer/index result can never leave a partially submitted TA
+    // scene. The geometry pipeline already stages atomically; this is the native
+    // boundary check for diagnostics and future callers.
+    const std::uint64_t frameStart = timer_ns_gettime64();
+    const std::uint64_t waitStart = frameStart;
+    if (pvr_wait_ready() != 0) {
+        dbglog(DBG_ERROR, "DreamcastRasterRenderer: pvr_wait_ready failed\n");
+        return false;
+    }
+    const std::uint64_t waitEnd = timer_ns_gettime64();
+
+    pvr_scene_begin();
+    bool sceneStarted = true;
+    if (pvr_list_begin(PVR_LIST_OP_POLY) != 0) {
+        dbglog(DBG_ERROR, "DreamcastRasterRenderer: pvr_list_begin failed\n");
+        pvr_scene_finish();
+        return false;
+    }
+    bool listStarted = true;
+
+    bool ok = pvr_prim(cachedHeader_, sizeof(cachedHeader_)) == 0;
+    const std::uint16_t count = geometry.triangleCount;
+    for (std::uint16_t ordinal = 0; ok && ordinal < count; ++ordinal) {
+        const std::uint16_t triangleIndex =
+            config_.reverseTriangleOrder ? static_cast<std::uint16_t>(count - ordinal - 1)
+                                          : ordinal;
+        const ProjectedTriangle& triangle = geometry.triangles[triangleIndex];
+        for (std::uint8_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex) {
+            const renderer_detail::VertexPacket packet = renderer_detail::makeVertexPacket(
+                triangle.vertices[vertexIndex], vertexIndex == 2);
+            if (pvr_prim(&packet, sizeof(packet)) != 0) {
+                ok = false;
+                break;
+            }
+        }
+    }
+
+    if (listStarted && pvr_list_finish() != 0) {
+        ok = false;
+    }
+    listStarted = false;
+    if (sceneStarted && pvr_scene_finish() != 0) {
+        ok = false;
+    }
+    sceneStarted = false;
+    if (!ok) {
+        dbglog(DBG_ERROR, "DreamcastRasterRenderer: scene submission failed\n");
+        return false;
+    }
+
+    const std::uint64_t frameEnd = timer_ns_gettime64();
+    pvr_stats_t stats{};
+    const bool statsValid = pvr_get_stats(&stats) == 0;
+    if (statsValid) {
+        diagnostics_.parameterBufferHighWaterBytes = toUint32(stats.vtx_buffer_used_max);
+    }
+    diagnostics_.submittedTriangles = geometry.triangleCount;
+    diagnostics_.submittedVertices = geometry.emittedVertexCount;
+    diagnostics_.clippedTriangles = geometry.clippedTriangleCount;
+    diagnostics_.waitReadyNanoseconds = waitEnd - waitStart;
+    diagnostics_.lastFrameNanoseconds = frameEnd - frameStart;
+    diagnostics_.availableVramBytes = toUint32(pvr_mem_available());
+    ++frameCounter_;
+    if (frameCounter_ == 1) {
+        dbglog(DBG_INFO, "DreamcastRasterRenderer: first submission (%u triangles)\n",
+               static_cast<unsigned>(geometry.triangleCount));
+    } else if (frameCounter_ % kLogEveryFrames == 0) {
+        const std::uint64_t kosFrameMilliseconds =
+            statsValid ? stats.frame_last_time / 1000000u : 0u;
+        const std::uint64_t registrationMilliseconds =
+            statsValid ? stats.reg_last_time / 1000000u : 0u;
+        const std::uint64_t renderingMilliseconds =
+            statsValid ? stats.rnd_last_time / 1000000u : 0u;
+        dbglog(DBG_INFO,
+               "DreamcastRasterRenderer: frame=%u tris=%u verts=%u clipped=%u "
+               "wall_ms=%llu wait_ms=%llu kos_frame_ms=%llu reg_ms=%llu render_ms=%llu "
+               "vram=%u param_high=%u\n",
+               static_cast<unsigned>(frameCounter_),
+               static_cast<unsigned>(diagnostics_.submittedTriangles),
+               static_cast<unsigned>(diagnostics_.submittedVertices),
+               static_cast<unsigned>(diagnostics_.clippedTriangles),
+               static_cast<unsigned long long>(diagnostics_.lastFrameNanoseconds / 1000000u),
+               static_cast<unsigned long long>(diagnostics_.waitReadyNanoseconds / 1000000u),
+               static_cast<unsigned long long>(kosFrameMilliseconds),
+               static_cast<unsigned long long>(registrationMilliseconds),
+               static_cast<unsigned long long>(renderingMilliseconds),
+               static_cast<unsigned>(diagnostics_.availableVramBytes),
+               static_cast<unsigned>(diagnostics_.parameterBufferHighWaterBytes));
+    }
+    return true;
+}
+
+RendererDiagnostics DreamcastRasterRenderer::diagnostics() const noexcept {
+    return diagnostics_;
+}
+
+void DreamcastRasterRenderer::shutdown() noexcept {
+    if (!initialized_) {
+        return;
+    }
+    // The scene has already been closed by renderFrame(). Drain both the
+    // renderer completion and TA readiness paths before pvr_shutdown().
+    if (pvr_wait_render_done() != 0) {
+        dbglog(DBG_WARNING, "DreamcastRasterRenderer: render drain timed out\n");
+    }
+    if (pvr_wait_ready() != 0) {
+        dbglog(DBG_WARNING, "DreamcastRasterRenderer: ready drain timed out\n");
+    }
+    if (pvr_shutdown() != 0) {
+        dbglog(DBG_ERROR, "DreamcastRasterRenderer: pvr_shutdown failed\n");
+    }
+    initialized_ = false;
+}
+
+} // namespace helengine::dreamcast
