@@ -9,6 +9,9 @@ namespace helengine.dreamcast.builder;
 /// <summary>Publishes the Dreamcast platform contract and delegates native execution behind an injectable seam.</summary>
 public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
     readonly DreamcastMaterialCooker MaterialCooker = new();
+    readonly DreamcastSceneCompatibilityValidator SceneValidator = new();
+    readonly DreamcastContentStager ContentStager;
+    readonly DreamcastStartupCatalogWriter StartupCatalogWriter = new();
     readonly IDreamcastNativeBuildExecutor NativeBuildExecutor;
 
     /// <summary>Creates a builder using the production native executor.</summary>
@@ -20,6 +23,7 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
     /// <param name="nativeBuildExecutor">Executor used for the native build phase.</param>
     public DreamcastPlatformAssetBuilder(IDreamcastNativeBuildExecutor nativeBuildExecutor) {
         NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
+        ContentStager = new DreamcastContentStager(SceneValidator);
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.dreamcast.builder",
             "0.2.0",
@@ -64,14 +68,19 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         List<PlatformBuildDiagnostic> diagnostics = [];
-        string contentRoot = Path.Combine(request.WorkingRoot, "dreamcast-content");
-        string catalogRoot = Path.Combine(request.WorkingRoot, "dreamcast-catalog");
+        string invocationRoot = Path.Combine(request.WorkingRoot, $"dreamcast-build-{Guid.NewGuid():N}");
+        string contentRoot = Path.Combine(invocationRoot, "content");
+        string catalogRoot = Path.Combine(invocationRoot, "catalog");
         try {
             cancellationToken.ThrowIfCancellationRequested();
             if (!string.Equals(request.Manifest.PlatformName, "dc", StringComparison.OrdinalIgnoreCase)) {
                 throw new InvalidOperationException($"Dreamcast builder received manifest for platform '{request.Manifest.PlatformName}'.");
             }
             Directory.CreateDirectory(request.OutputRoot);
+            IReadOnlyList<DreamcastStartupCatalogEntry> catalogEntries = SceneValidator.Validate(request.Manifest);
+            string packageSourceRoot = Path.Combine(request.WorkingRoot, "package-source");
+            ContentStager.Stage(request.Manifest, packageSourceRoot, contentRoot, cancellationToken);
+            StartupCatalogWriter.Write(catalogRoot, request.Manifest.StartupSceneId, catalogEntries);
             progressReporter.Report(new PlatformBuildProgressUpdate("Build Native ELF", "dreamcast", 0, 1, "Preparing the Dreamcast native executor."));
             NativeBuildExecutor.Build(request, contentRoot, catalogRoot, cancellationToken);
             progressReporter.Report(new PlatformBuildProgressUpdate("Build Native ELF", "dreamcast", 1, 1, "Built the Dreamcast native runtime."));

@@ -88,8 +88,16 @@ if (-not $Build) {
 }
 
 $OriginalEngineUserSettingsRoot = $env:HELENGINE_ENGINE_USER_SETTINGS_ROOT
+$OriginalRepositoryRoot = $env:HELENGINE_DC_REPOSITORY_ROOT
+$OriginalPowerShell = $env:HELENGINE_DC_POWERSHELL
 try {
     $env:HELENGINE_ENGINE_USER_SETTINGS_ROOT = $SettingsRoot
+    # The native executor runs this checkout's scripts/build.ps1 with the same
+    # PowerShell 7 host that runs this script; pwsh is not assumed on PATH.
+    $env:HELENGINE_DC_REPOSITORY_ROOT = $ScriptRoot
+    $env:HELENGINE_DC_POWERSHELL = (Get-Process -Id $PID).Path
+    Write-Output "RepositoryRoot: $($env:HELENGINE_DC_REPOSITORY_ROOT)"
+    Write-Output "NativePowerShell: $($env:HELENGINE_DC_POWERSHELL)"
     $InvocationOutput = @(& $BuildPlatformScript `
         -Project $FixtureProjectPath `
         -Platform $Platform `
@@ -103,4 +111,6 @@ try {
     exit $InvocationExitCode
 } finally {
     $env:HELENGINE_ENGINE_USER_SETTINGS_ROOT = $OriginalEngineUserSettingsRoot
+    $env:HELENGINE_DC_REPOSITORY_ROOT = $OriginalRepositoryRoot
+    $env:HELENGINE_DC_POWERSHELL = $OriginalPowerShell
 }

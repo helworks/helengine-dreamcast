@@ -1,14 +1,17 @@
+using System.Diagnostics;
+using helengine.baseplatform.Requests;
+
 namespace helengine.dreamcast.builder;
 
-/// <summary>Reports the explicit Task 1 native-build boundary until the Dreamcast native bridge is connected.</summary>
+/// <summary>Runs the pinned PowerShell/Docker native build in an explicit source checkout.</summary>
 public sealed class DreamcastNativeBuildExecutor : IDreamcastNativeBuildExecutor {
-    /// <summary>Fails clearly because Task 1 only establishes the platform contract and cooked inputs.</summary>
+    /// <summary>Builds a normal Authored image from staged content and external generated Core sources.</summary>
     /// <param name="request">Complete platform request.</param>
     /// <param name="contentRoot">Staged content root.</param>
     /// <param name="catalogRoot">Startup catalog root.</param>
     /// <param name="cancellationToken">Cooperative cancellation token.</param>
     public void Build(
-        helengine.baseplatform.Requests.PlatformBuildRequest request,
+        PlatformBuildRequest request,
         string contentRoot,
         string catalogRoot,
         CancellationToken cancellationToken) {
@@ -16,6 +19,66 @@ public sealed class DreamcastNativeBuildExecutor : IDreamcastNativeBuildExecutor
             throw new ArgumentNullException(nameof(request));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        throw new InvalidOperationException("Dreamcast native executor is not ready; Task 1 only validates the platform contract and cooked content.");
+        if (string.IsNullOrWhiteSpace(request.GeneratedCoreCppRootPath)) {
+            throw new InvalidOperationException("Dreamcast Authored build requires GeneratedCoreCppRootPath.");
+        }
+
+        string repositoryRoot = Environment.GetEnvironmentVariable("HELENGINE_DC_REPOSITORY_ROOT");
+        if (string.IsNullOrWhiteSpace(repositoryRoot)) {
+            throw new InvalidOperationException("Set HELENGINE_DC_REPOSITORY_ROOT to the isolated Dreamcast source checkout before invoking the native executor.");
+        }
+        repositoryRoot = Path.GetFullPath(repositoryRoot);
+        string buildScript = Path.Combine(repositoryRoot, "scripts", "build.ps1");
+        if (!File.Exists(buildScript)) {
+            throw new FileNotFoundException("Dreamcast native build script was not found in HELENGINE_DC_REPOSITORY_ROOT.", buildScript);
+        }
+
+        string powershell = Environment.GetEnvironmentVariable("HELENGINE_DC_POWERSHELL") ?? "pwsh";
+        string buildId = $"authored-{Guid.NewGuid():N}";
+        ProcessStartInfo startInfo = new(powershell) {
+            WorkingDirectory = repositoryRoot,
+            UseShellExecute = false,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false
+        };
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-File");
+        startInfo.ArgumentList.Add(buildScript);
+        startInfo.ArgumentList.Add("-BuildId");
+        startInfo.ArgumentList.Add(buildId);
+        startInfo.ArgumentList.Add("-Mode");
+        startInfo.ArgumentList.Add("Authored");
+        startInfo.ArgumentList.Add("-OutputRoot");
+        startInfo.ArgumentList.Add(request.OutputRoot);
+        startInfo.ArgumentList.Add("-GeneratedCoreRoot");
+        startInfo.ArgumentList.Add(request.GeneratedCoreCppRootPath);
+        startInfo.ArgumentList.Add("-ContentRoot");
+        startInfo.ArgumentList.Add(contentRoot);
+        startInfo.ArgumentList.Add("-CatalogRoot");
+        startInfo.ArgumentList.Add(catalogRoot);
+
+        using Process process = new() { StartInfo = startInfo, EnableRaisingEvents = true };
+        if (!process.Start()) {
+            throw new InvalidOperationException("Failed to start the Dreamcast native build process.");
+        }
+        try {
+            process.WaitForExitAsync(cancellationToken).GetAwaiter().GetResult();
+        } catch (OperationCanceledException) {
+            try {
+                process.Kill(entireProcessTree: true);
+            } catch (InvalidOperationException) {
+            }
+            throw;
+        }
+        if (process.ExitCode != 0) {
+            throw new InvalidOperationException($"Dreamcast native build failed with exit code {process.ExitCode}.");
+        }
+
+        string buildRoot = Path.Combine(request.OutputRoot, buildId);
+        if (!File.Exists(Path.Combine(buildRoot, "helengine_dc.elf")) ||
+            !File.Exists(Path.Combine(buildRoot, "helengine_dc.map")) ||
+            !File.Exists(Path.Combine(buildRoot, "build-manifest.txt"))) {
+            throw new InvalidOperationException($"Dreamcast native build completed without a verified output manifest: {buildRoot}");
+        }
     }
 }
