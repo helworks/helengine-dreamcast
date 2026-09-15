@@ -1,24 +1,65 @@
 # Dreamcast v0.1 validation evidence
 
-This matrix records observed evidence by build ID. A blank or `PENDING` row is not an acceptance claim. Every populated row must name the exact KOS commit, local SDK image ID, ELF SHA-256, route, and artifact path.
+This matrix records observed evidence for the Dreamcast target. Flycast results use internal Lua callbacks and raw emulated framebuffer memory through the 32-bit PVR aperture. Start shutdown and missing-controller startup passed bounded probes on the final default ELF. Physical hardware remains untested.
 
-| Evidence row | Command / route | Build ID | KOS commit / SDK image ID / ELF SHA-256 | Observed result | Artifact path |
+## Build identities
+
+| Ref | Build ID / selector | Source commit | KOS commit | SDK image ID | ELF SHA-256 |
 |---|---|---|---|---|---|
-| Host geometry tests | Pinned `helengine-dc-sdk:v01`: `make -C /src BUILD_ROOT=/out host-test` | dreamcast-v01-20260915-001 | KOS `fcfa7d869471591ca1c777543261a7bfea7cb726`; SDK `sha256:469db4c6155dd4ce1c6b6597b4a135c7c22a6e49c6f7dbb7a374e1d5ab4ef25a`; ELF `835053e54b142ba1d487bc753aa31cfb19eaabf83f2594bd11a079de7144c74b` | Geometry and raster seam tests passed; exit code 0. | `C:\dev\helworks\builds\helengine-dc\dreamcast-v01-20260915-001\dreamcast-geometry-tests`; `dreamcast-raster-seam-tests` |
-| KOS hello parity | Pinned KOS hello example build/run | PENDING | PENDING | PENDING | PENDING |
-| KOS PVR example parity | Pinned KOS PVR example build/run | PENDING | PENDING | PENDING | PENDING |
-| ELF header, map, and hash | `scripts/build.ps1 -BuildId dreamcast-v01-20260915-001`; pinned `sh-elf-readelf -h` | dreamcast-v01-20260915-001 | KOS `fcfa7d869471591ca1c777543261a7bfea7cb726`; SDK `sha256:469db4c6155dd4ce1c6b6597b4a135c7c22a6e49c6f7dbb7a374e1d5ab4ef25a`; ELF `835053e54b142ba1d487bc753aa31cfb19eaabf83f2594bd11a079de7144c74b` | Build exit code 0; ELF32, 2's complement little-endian, Renesas/SuperH SH; map present. | `C:\dev\helworks\builds\helengine-dc\dreamcast-v01-20260915-001\helengine_dc.elf`; `helengine_dc.map`; `build-manifest.txt`; `elf-header.txt` |
-| Dark clear screen | Flycast direct ELF/HLE with clear-only diagnostic | PENDING | PENDING | PENDING | PENDING |
-| Screen-space triangle | Flycast direct ELF/HLE with triangle diagnostic | PENDING | PENDING | PENDING | PENDING |
-| Centered fixed cube | Flycast direct ELF/HLE with fixed cube pose | PENDING | PENDING | PENDING | PENDING |
-| Culling-disabled diagnostic | Flycast direct ELF/HLE with culling disabled | PENDING | PENDING | PENDING | PENDING |
-| Reverse submission order | Flycast direct ELF/HLE with reverse order | PENDING | PENDING | PENDING | PENDING |
-| Near-plane crossings | Flycast direct ELF/HLE near-plane probe | PENDING | PENDING | PENDING | PENDING |
-| Screen-edge crossings | Flycast direct ELF/HLE screen-edge probe | PENDING | PENDING | PENDING | PENDING |
-| Ten-minute animation | Flycast direct ELF/HLE timed run; inspect logs and allocation diagnostics | PENDING | PENDING | PENDING | PENDING |
-| Missing-controller startup | Flycast direct ELF/HLE with no controller attached | PENDING | PENDING | PENDING | PENDING |
-| Start exit | Flycast direct ELF/HLE; press Start on an available controller | PENDING | PENDING | PENDING | PENDING |
-| Emulator functional result | Flycast vblank/Lua or equivalent internal framebuffer and log evidence | PENDING | PENDING | PENDING | PENDING |
-| Physical-console result | Authorized loader/display path using the same ELF | PENDING | PENDING | PENDING | PENDING |
+| A | `dreamcast-v01-acceptance-20260915-002` / default cube | `d7fe241` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:a33ea383336b428d8ac9bc507e00fd066092d4b0c8fcea29adccd61b2025f067` | `7b02423a8027768623ff960d01f3f384ce344e03d4e82f1d3b9ffabe3efccad6` |
+| B | `dreamcast-v01-acceptance-20260915-001` / ten-minute soak | `8673e6a` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:a33ea383336b428d8ac9bc507e00fd066092d4b0c8fcea29adccd61b2025f067` | `45d36cfcb879405ab130a40920d1cd38d7721887caae50fa4811c9a4cc3503a5` |
+| C | `dreamcast-v01-acceptance-near-20260915-001` / near-plane probe | `d7fe241` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:a33ea383336b428d8ac9bc507e00fd066092d4b0c8fcea29adccd61b2025f067` | `85c37a62dd1b11d73eb2f68f9845f2f7e50299516b7a47677144d1cd7bd52dee` |
+| D | `dreamcast-v01-acceptance-static-reverse-20260915-002` / static reverse order | `8673e6a` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:a33ea383336b428d8ac9bc507e00fd066092d4b0c8fcea29adccd61b2025f067` | `fc9042a7317a00b68cec8dd72b880ee39ea81c80377776a541ab54fbdecc1659` |
+| E | `dreamcast-v01-acceptance-timed-20260915-001` / `StopAfterSeconds=1` | `d7fe241` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:a33ea383336b428d8ac9bc507e00fd066092d4b0c8fcea29adccd61b2025f067` | `de64419e0682401e790ea532bbc6bfbf2055d37a55c946d2f8fbe1138fcb021d` |
+| F | `dreamcast-v01-validation-final-0dd-triangle-20260915-001` / screen triangle | `0ddfb43` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:469db4c6155dd4ce1c6b6597b4a135c7c22a6e49c6f7dbb7a374e1d5ab4ef25a` | `b6407cb724f0fce29865e912c761e24af953311873aed039a2c21162d519e4c3` |
+| G | `dreamcast-v01-validation-final-0dd-clear-20260915-001` / clear | `0ddfb43` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:dbba6bed5fb6435ff703ba72875fd171fbd450b954a2d280602772433664d561` | `9ace1e76a09a4afb99b5af45d5a31bc69f76c284f1c98bb63a785ce90c2c3e7a` |
+| H | `dreamcast-v01-validation-final-0dd-static-nocull-20260915-001` / culling disabled | `0ddfb43` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:dbba6bed5fb6435ff703ba72875fd171fbd450b954a2d280602772433664d561` | `d7296994efaf1fd1e5125a1de80112c28f30bde0dad2a9ad7565726ee78f5f1d` |
+| I | `dreamcast-v01-validation-final-0dd-edge-20260915-001` / screen edge | `0ddfb43` | `fcfa7d869471591ca1c777543261a7bfea7cb726` | `sha256:dbba6bed5fb6435ff703ba72875fd171fbd450b954a2d280602772433664d561` | `d463534e9ff44bfd4af6d3c031c23f10234b6e8d42de0c35f0dd0fda98217225` |
+| J | dreamcast-v01-validation-final-0dd-static-20260915-001 / static cube | 0ddfb43 (dirty; source hashes retained) | fcfa7d869471591ca1c777543261a7bfea7cb726 | sha256:dbba6bed5fb6435ff703ba72875fd171fbd450b954a2d280602772433664d561 | 79a55d00f0dd2394dc0ecda5c0366fa969151f42b2f68f04aaf1b349b377ed9e |
 
-Emulator observations must be labeled as Flycast evidence and cite the build-local logs or internal framebuffer/Lua artifacts. Screenshots are optional and are not required for this record. Physical-console evidence remains pending until the same ELF is exercised on hardware with an authorized loader and display path. Timing, VRAM, and allocation claims are measured only when the corresponding diagnostic output exists; research documents are not evidence.
+`A` is the current clean default acceptance artifact. `B` is byte-identical to the actual 603-second soak artifact `dreamcast-v01-validation-final-0dd-default-20260915-001` (source `0ddfb43`, historical SDK `469db4c6...`); it is distinct from current `A`. The only native change in A adjusts the near diagnostic pose used by C. A passed a fresh 300-VBlank smoke and both input probes. Historical dirty builds retain exact per-file source hashes in their manifests.
+
+## Evidence matrix
+
+| Evidence row | Command / route | Identity | Observed result | Artifact path |
+|---|---|---|---|---|
+| Host geometry tests | Pinned SDK `make -C /src BUILD_ROOT=/out host-test`, plus direct ASan/UBSan host tests | Host verification at source `0ddfb43`, KOS `fcfa7d869471591ca1c777543261a7bfea7cb726`, SDK `sha256:469db4c6155dd4ce1c6b6597b4a135c7c22a6e49c6f7dbb7a374e1d5ab4ef25a` | Geometry and raster seam tests passed with exit code 0; sanitizer builds reported no findings. | [verification.txt](C:/dev/helworks/builds/helengine-dc/root-verification-20260915/verification.txt) |
+| Final host-test rerun | Final Makefile make BUILD_ROOT=/out host-test | B source and SDK | Geometry and raster seam suites both passed. Later native change only adjusts the near diagnostic pose; test sources and geometry pipeline are unchanged. | [host-tests.log](C:/dev/helworks/builds/helengine-dc/dreamcast-v01-acceptance-20260915-001/host-tests.log) |
+| KOS hello parity | Pinned KOS hello example | PENDING | No standalone hello runtime artifact with a complete build manifest is retained. | `C:\dev\helworks\builds\helengine-dc\bootstrap\hello.elf` |
+| KOS PVR example parity | Pinned KOS PVR sample route | PENDING | The pvrmark Flycast run has framebuffer evidence, but its standalone sample build identity was not captured in a manifest. | [emulator-validation-report.md](C:/dev/helworks/builds/helengine-dc/bootstrap/emulator-validation-report.md); [pvrmark-validation.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/pvrmark-validation.csv) |
+| ELF header, map, and hash | `scripts/build.ps1`, pinned `sh-elf-readelf -h` | A | ELF32 SuperH little-endian header, map, manifest, and SHA-256 are present; clean build exit code 0. | `C:\dev\helworks\builds\helengine-dc\dreamcast-v01-acceptance-20260915-002\helengine_dc.elf`; `helengine_dc.map`; `build-manifest.txt`; `elf-header.txt` |
+| Dark clear screen | Flycast direct ELF/HLE, `rend.EmulateFramebuffer=yes`, clear diagnostic | G | Status 2/error 0, zero submitted geometry, stable clear framebuffer hash `0000c6f6`. | [engine-validation-final-clear-0dd.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-final-clear-0dd.csv); [engine-final-clear-0dd-frame-0060-32.png](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-clear-0dd-frame-0060-32.png) |
+| Screen-space triangle | Flycast direct ELF/HLE, triangle diagnostic | F | Status 2/error 0, `diag_tris=1`, `diag_verts=3`, framebuffer hash `00035588`. | [engine-validation-final-triangle.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-final-triangle.csv); [engine-final-triangle-frame-0060-32.png](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-triangle-frame-0060-32.png) |
+| Centered fixed cube | Flycast static-pose diagnostic | J | Exterior green front, cyan top, blue right. Static, no-cull and reversed-order raw frames share SHA-256 2c13dc96efabe106aae6beac98426f32eea4d8637e18360a8f7efccbde2ae804. | [static frame](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-static-frame-0060-32.png); [static CSV](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-final-static.csv) |
+| Culling-disabled diagnostic | Flycast static pose with culling disabled | H | Status 2/error 0, stable exterior cube hash `0000edb1`, 432,607 nonzero bytes. | [engine-validation-final-static-nocull.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-final-static-nocull.csv); [engine-final-static-nocull-frame-0060-32.png](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-static-nocull-frame-0060-32.png) |
+| Reverse submission order | Flycast static pose with reversed triangle order | D | Same fixed-pose hash `0000edb1` and nonzero byte count as the static comparison, with status 2/error 0. | [engine-validation-final-static-reverse.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-final-static-reverse.csv); [engine-final-static-reverse-frame-0060-32.png](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-static-reverse-frame-0060-32.png) |
+| Near-plane crossings | Flycast corrected near-plane probe | C | Frame 60: `diag_tris=16`, `diag_verts=48`, `diag_clipped=4`, 456,181 nonzero bytes, hash `0000eba9`; later frames remain nonzero and change. | [engine-validation-acceptance-near.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-acceptance-near.csv); [engine-final-acceptance-near-frame-0060-32.png](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-acceptance-near-frame-0060-32.png) |
+| Screen-edge crossings | Flycast screen-edge probe | I | Status 2/error 0 with nonzero changing framebuffer; frame 240 hash `00066624`, 426,343 nonzero bytes. | [engine-validation-final-edge.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-final-edge.csv); [engine-final-edge-frame-0060-32.png](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-edge-frame-0060-32.png) |
+| Ten-minute animation | Flycast hidden process, Lua vblank/frame diagnostics | B | `vblank=36100`, `captures=126`, `elapsed_wall_s=603`; final sample status 2/error 0, 12 triangles/36 vertices, VRAM 6,937,344 bytes. The earlier 18,000-VBlank run was only approximately five minutes and is not counted here. | [engine-validation-final-long.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-final-long.csv) |
+| Missing-controller startup | Flycast all four ports set with input:deviceN=10 | A | Effective bus 1 type 10; frame advanced continuously to 448 at VBlank 480, no shutdown/reset, one REIOS boot. | [no-controller.csv](C:/dev/helworks/builds/helengine-dc/input-validation/no-controller.csv); [input report](C:/dev/helworks/builds/helengine-dc/input-validation/input-validation-report.md) |
+| Start exit | Flycast input:device1=0; Lua active-low Start injection after healthy frame 60 | A | Native status 2/frame 60 became status 4/frame 62, then status 0/frame 0; exactly two REIOS boots. Process exit came later from the explicit probe bound. | [controller.csv](C:/dev/helworks/builds/helengine-dc/input-validation/controller.csv); [input report](C:/dev/helworks/builds/helengine-dc/input-validation/input-validation-report.md) |
+| Timed stop diagnostic | Flycast hidden process with StopAfterSeconds=1 | E | Active frame diagnostics followed by native frame resets and repeated REIOS boots. The 6.09-second process duration ended at the explicit 300-VBlank Lua bound; it is not application shutdown latency. | [engine-validation-acceptance-timed.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-acceptance-timed.csv) |
+| Emulator functional result | Flycast vblank/Lua callbacks plus raw internal framebuffer | A | `callbacks_ready`, start, active 640x480 PVR, status 2/error 0, advancing frame diagnostics, and nonzero RGB565 raw framebuffer. | [engine-validation-acceptance002.csv](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-validation-acceptance002.csv); [engine-final-frame-0060-32.png](C:/dev/helworks/builds/helengine-dc/bootstrap/engine-final-frame-0060-32.png) |
+| Physical-console result | Authorized loader/display path | PENDING | No hardware or physical-console run was performed. | PENDING |
+
+## Reusable Flycast route and measurement limits
+
+For interactive use, follow [Build.md](Build.md). To repeat the bounded no-controller probe, use its retained isolated profile. Flycast reads configuration beside its executable; setting only the working directory is insufficient. Copy the profile to a fresh external directory before rerunning to preserve the original evidence.
+
+```powershell
+$profile = 'C:\dev\helworks\builds\helengine-dc\input-validation\no-controller'
+$profileExe = Join-Path $profile 'flycast.exe'
+$elf = 'C:\dev\helworks\builds\helengine-dc\dreamcast-v01-acceptance-20260915-002\helengine_dc.elf'
+$flycastArgs = @('-config','log:LogToFile=yes',
+  '-config','config:UseReios=yes',
+  '-config','config:rend.EmulateFramebuffer=yes',
+  '-config','config:rend.ThreadedRendering=no',
+  '-config','input:device1=10','-config','input:device2=10',
+  '-config','input:device3=10','-config','input:device4=10',
+  '-config','config:LuaFileName=input-validation.lua', $elf)
+Start-Process -FilePath $profileExe -WorkingDirectory $profile -ArgumentList $flycastArgs -WindowStyle Hidden -Wait
+```
+
+The Lua probe reads framebuffer memory at `0x05000000 + FB_W_SOF1`; the P2 alias `0xA5000000 + FB_W_SOF1` produces the same hash. The old `0x04000000` aperture is not valid evidence for DX11 writeback. The diagnostic snapshot stores nanoseconds: typical healthy samples were interval about 16.68 ms, geometry about 572,000 ns, submission about 177,600 ns, and wait about 15.7 ms. Integer millisecond fields that display zero for geometry/submission are truncation, not zero work.
+
+Flycast's Dreamcast `TA_ITP_CURRENT` stayed at `0x00400000`, the initialized `TA_ISP_BASE`, and `diag_param_high=0` throughout. This emulator counter does not expose parameter-buffer consumption for the Dreamcast TA path, so it must not be reported as zero consumption. `diag_vram=6,937,344` is stable allocator evidence. Physical-console acceptance remains pending until the same ELF is exercised through an authorized loader and display path.
