@@ -56,7 +56,7 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
         SceneAssetReference materialReference = CreateReference(MaterialRelativePath, materialBytes);
         byte[] sceneBytes = CreateSceneBytes(normalizedVariant, modelReference, materialReference);
         WriteAsset(root, SceneRelativePath, sceneBytes);
-        WriteBuildConfiguration(root);
+        WriteBuildConfiguration(root, normalizedVariant);
 
         Console.WriteLine($"model={modelPath}");
         Console.WriteLine($"material={materialPath}");
@@ -65,11 +65,17 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
 
     /// <summary>Persists editor build selections through the current build-config service.</summary>
     /// <param name="root">Fixture project root.</param>
-    static void WriteBuildConfiguration(string root) {
+    /// <param name="variant">Selected fixture variant.</param>
+    static void WriteBuildConfiguration(string root, string variant) {
+        // The wrong-startup variant routes and selects a scene that does not exist. The
+        // generic editor graph currently substitutes the available project scene instead of
+        // failing (recorded in docs/Validation.md), so this variant documents engine behaviour;
+        // the builder-level startup association guard is covered by unit tests.
+        string startupSceneId = variant == "wrong-startup" ? "scenes/missing" : "scenes/startup";
         EditorBuildConfigService service = new(root);
-        EditorBuildConfigDocument document = service.Load(["dc"], "scenes/startup");
+        EditorBuildConfigDocument document = service.Load(["dc"], startupSceneId);
         EditorBuildPlatformConfigDocument platform = document.Platforms.Single(item => string.Equals(item.PlatformId, "dc", StringComparison.Ordinal));
-        platform.SelectedSceneIds = ["scenes/startup"];
+        platform.SelectedSceneIds = [startupSceneId];
         platform.SelectedBuildProfileId = "release";
         platform.SelectedGraphicsProfileId = "dc-unlit";
         platform.SelectedCodegenProfileId = "default";

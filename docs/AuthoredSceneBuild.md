@@ -131,5 +131,8 @@ Every unsupported input fails with an identified error and no success
 manifest: missing authored roots, absent `Core.hpp`, absent catalog ABI,
 compiler failure, manifest scenes without a unique cooked path, more or fewer
 than one camera or mesh, over-limit models, lit/textured/translucent materials,
-a missing referenced cooked file, or a boot scene that does not exist. The
-Diagnostic build mode and its selectors are unchanged and remain available.
+or a missing referenced cooked file. A nonexistent boot-scene id in the project
+routing or build configuration is not rejected by the generic engine graph, which
+substitutes the available project scene; only the builder-level startup/scene
+association check guards that case. The Diagnostic build mode and its selectors
+are unchanged and remain available.
