@@ -64,7 +64,9 @@ GeometryStatus makeGeometry(const HostConfig& config,
     }
 
     const float x = config.screenEdgeProbe ? 3.8f : 0.0f;
-    const float z = config.nearPlaneProbe ? 1.20f : 6.0f;
+    // Keep the rotated cube outside the camera while its nearest corners still
+    // cross the 0.5 near plane, so this probe shows clipped exterior faces.
+    const float z = config.nearPlaneProbe ? 2.0f : 6.0f;
     const GeometryConfig geometryConfig{
         static_cast<float>(video.width),
         static_cast<float>(video.height),
