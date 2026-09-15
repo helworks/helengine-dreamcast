@@ -2,7 +2,11 @@
 # Task 3 adds the reproducible Docker/manifest wrappers around this interface.
 
 TARGET := helengine_dc
-BUILD_ROOT ?= build
+
+ifndef BUILD_ROOT
+$(error BUILD_ROOT is required; pass an external output directory such as BUILD_ROOT=/out)
+endif
+
 KOS_BASE ?= /opt/toolchains/dc/kos
 
 ELF := $(BUILD_ROOT)/$(TARGET).elf

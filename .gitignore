@@ -1,0 +1,8 @@
+# Repository-local generated products only; canonical build outputs live outside the worktree.
+/build/
+*.elf
+*.map
+*.o
+*.d
+tests/native/*.bin
+tests/native/*.out
