@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$KosPath = 'C:\dev\helworks\builds\helengine-dc\dependencies\kos',
+    [ValidateSet('helengine-dc-sdk:v01')]
     [string]$ImageTag = 'helengine-dc-sdk:v01'
 )
 
@@ -9,8 +10,10 @@ Set-StrictMode -Version Latest
 
 $expectedKosCommit = 'fcfa7d869471591ca1c777543261a7bfea7cb726'
 $expectedBaseImage = 'pcercuei/dreamcast-toolchain@sha256:504ed29fad5e5565579bf00235fc011fdde656004e50bde4aa24a93b59e2a7bb'
+$expectedCompilerAbi = 'sh-elf little-endian -m4-single'
 $expectedFlycastVersion = '2.7'
 $expectedFlycastPath = 'C:\dev\helworks\builds\helengine-dc\dependencies\flycast-2.7\flycast.exe'
+$expectedFlycastSha256 = 'f41c1a4243274caf9a183114bd610407835521a011a48b18326e5e957e6f4e6b'
 $scriptRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $externalRoot = [IO.Path]::GetFullPath('C:\dev\helworks\builds\helengine-dc')
 $KosPath = [IO.Path]::GetFullPath($KosPath)
@@ -61,6 +64,18 @@ $imageId = ((Invoke-CheckedNative 'docker' @('image', 'inspect', $ImageTag, '--f
 if ($imageId -notmatch '^sha256:[0-9a-f]{64}$') {
     throw "Docker returned an invalid image ID for ${ImageTag}: $imageId"
 }
+$baseLabel = ((Invoke-CheckedNative 'docker' @('image', 'inspect', $ImageTag, '--format', '{{index .Config.Labels "org.helengine.dreamcast.upstream-base"}}')) -join '').Trim()
+$kosLabel = ((Invoke-CheckedNative 'docker' @('image', 'inspect', $ImageTag, '--format', '{{index .Config.Labels "org.helengine.dreamcast.kos-commit"}}')) -join '').Trim()
+$abiLabel = ((Invoke-CheckedNative 'docker' @('image', 'inspect', $ImageTag, '--format', '{{index .Config.Labels "org.helengine.dreamcast.compiler-abi"}}')) -join '').Trim()
+if ($baseLabel -ne $expectedBaseImage) {
+    throw "SDK image base metadata mismatch. Expected $expectedBaseImage, found $baseLabel"
+}
+if ($kosLabel -ne $expectedKosCommit) {
+    throw "SDK image KOS metadata mismatch. Expected $expectedKosCommit, found $kosLabel"
+}
+if ($abiLabel -ne $expectedCompilerAbi) {
+    throw "SDK image ABI metadata mismatch. Expected $expectedCompilerAbi, found $abiLabel"
+}
 
 $metadataScript = @'
 set -e
@@ -71,6 +86,7 @@ printf 'ReadelfPath=%s\n' "$(command -v sh-elf-readelf)"
 printf 'KosCxxPath=%s\n' "$(command -v kos-c++)"
 printf 'KOSBase=%s\n' "$KOS_BASE"
 printf 'KosCommit=%s\n' "$(git -C "$KOS_BASE" rev-parse HEAD)"
+printf 'CompilerTarget=%s\n' "$(sh-elf-gcc -dumpmachine)"
 printf 'CompilerFlags=%s\n' "$KOS_SH4_PRECISION -ml"
 '@
 $metadataOutput = Invoke-CheckedNative 'docker' @('run', '--rm', '--entrypoint', '/bin/bash', $ImageTag, '-lc', $metadataScript)
@@ -85,10 +101,19 @@ foreach ($line in $metadataOutput) {
 if ($metadata['KosCommit'] -ne $expectedKosCommit) {
     throw "SDK image KOS commit mismatch: $($metadata['KosCommit'])"
 }
+if ($metadata['CompilerTarget'] -ne 'sh-elf') {
+    throw "SDK compiler target mismatch: $($metadata['CompilerTarget'])"
+}
+if ($metadata['CompilerFlags'] -ne '-m4-single -ml') {
+    throw "SDK compiler flags mismatch: $($metadata['CompilerFlags'])"
+}
 
-$flycastHash = ''
-if (Test-Path -LiteralPath $expectedFlycastPath -PathType Leaf) {
-    $flycastHash = (Get-FileHash -LiteralPath $expectedFlycastPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if (-not (Test-Path -LiteralPath $expectedFlycastPath -PathType Leaf)) {
+    throw "Pinned Flycast $expectedFlycastVersion executable is required: $expectedFlycastPath"
+}
+$flycastHash = (Get-FileHash -LiteralPath $expectedFlycastPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($flycastHash -ne $expectedFlycastSha256) {
+    throw "Flycast hash mismatch. Expected $expectedFlycastSha256, found $flycastHash."
 }
 
 $lockLines = @(

@@ -60,6 +60,26 @@ function Invoke-CheckedNative {
     return @($output)
 }
 
+function Get-SourceInputFingerprint {
+    $sourceInputFiles = @(
+        Get-Item -LiteralPath (Join-Path $repoRoot 'Makefile')
+        Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse
+        Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -File -Recurse
+    )
+    $sourceHashLines = @(
+        foreach ($sourceInputFile in $sourceInputFiles) {
+            $relativePath = [IO.Path]::GetRelativePath($repoRoot, $sourceInputFile.FullName).Replace('\', '/')
+            $contentHash = (Get-FileHash -LiteralPath $sourceInputFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$relativePath=$contentHash"
+        }
+    ) | Sort-Object
+    $sourceHashText = $sourceHashLines -join "`n"
+    [PSCustomObject]@{
+        Lines = @($sourceHashLines)
+        Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($sourceHashText))).ToLowerInvariant()
+    }
+}
+
 if (Test-Path -LiteralPath $buildRoot) {
     throw "Refusing to reuse existing build directory: $buildRoot"
 }
@@ -86,6 +106,8 @@ if ($actualImageId -ne $lock['LocalImageId']) {
 }
 
 New-Item -ItemType Directory -Path $buildRoot -Force:$false | Out-Null
+$sourceFingerprintBefore = Get-SourceInputFingerprint
+Set-Content -LiteralPath (Join-Path $buildRoot 'source-hashes-before.txt') -Value $sourceFingerprintBefore.Lines -Encoding UTF8
 $dockerLogPath = Join-Path $buildRoot 'docker-build.log'
 $diagnosticDefines = [Collections.Generic.List[string]]::new()
 switch ($Scene) {
@@ -150,25 +172,15 @@ if ($readelfText -notmatch 'little endian' -or $readelfText -notmatch 'SuperH') 
 $readelfOutput | Set-Content -LiteralPath (Join-Path $buildRoot 'elf-header.txt') -Encoding UTF8
 
 $elfHash = (Get-FileHash -LiteralPath $elfPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$sourceFingerprintAfter = Get-SourceInputFingerprint
+if ($sourceFingerprintBefore.Hash -ne $sourceFingerprintAfter.Hash) {
+    throw "Source inputs changed during the build; refusing to attribute the ELF to one source snapshot. Before=$($sourceFingerprintBefore.Hash), After=$($sourceFingerprintAfter.Hash)"
+}
+Set-Content -LiteralPath (Join-Path $buildRoot 'source-hashes.txt') -Value $sourceFingerprintAfter.Lines -Encoding UTF8
 $gitCommit = ((Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'rev-parse', 'HEAD')) -join '').Trim()
 $gitStatus = (Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all')) -join "`n"
 $gitDirty = if ([string]::IsNullOrWhiteSpace($gitStatus)) { 'false' } else { 'true' }
 $statusListingHash = if ([string]::IsNullOrWhiteSpace($gitStatus)) { 'none' } else { [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($gitStatus))).ToLowerInvariant() }
-$sourceInputFiles = @(
-    Get-Item -LiteralPath (Join-Path $repoRoot 'Makefile')
-    Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse
-    Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -File -Recurse
-)
-$sourceHashLines = @(
-    foreach ($sourceInputFile in $sourceInputFiles) {
-        $relativePath = [IO.Path]::GetRelativePath($repoRoot, $sourceInputFile.FullName).Replace('\', '/')
-        $contentHash = (Get-FileHash -LiteralPath $sourceInputFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        "$relativePath=$contentHash"
-    }
-) | Sort-Object
-$sourceHashText = $sourceHashLines -join "`n"
-$sourceInputHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($sourceHashText))).ToLowerInvariant()
-Set-Content -LiteralPath (Join-Path $buildRoot 'source-hashes.txt') -Value $sourceHashLines -Encoding UTF8
 $manifestLines = @(
     'ManifestVersion=1',
     "BuildId=$BuildId",
@@ -176,7 +188,10 @@ $manifestLines = @(
     "GitCommit=$gitCommit",
     "GitDirty=$gitDirty",
     "GitStatusListingSha256=$statusListingHash",
-    "SourceInputSha256=$sourceInputHash",
+    "SourceInputSha256=$($sourceFingerprintAfter.Hash)",
+    "SourceInputSha256Before=$($sourceFingerprintBefore.Hash)",
+    "SourceInputSha256After=$($sourceFingerprintAfter.Hash)",
+    'SourceInputHashBeforeManifest=source-hashes-before.txt',
     'SourceInputHashManifest=source-hashes.txt',
     "KosCommit=$expectedKosCommit",
     "DockerImage=$DockerImage",

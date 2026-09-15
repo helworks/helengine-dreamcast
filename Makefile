@@ -21,24 +21,28 @@ SOURCES := \
     src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
     src/platform/dreamcast/DreamcastCubeMesh.cpp
 OBJECTS := $(patsubst src/%.cpp,$(OBJ_ROOT)/%.o,$(SOURCES))
+DEPS := $(OBJECTS:.o=.d)
 
 CPPFLAGS += -Isrc
 CXXFLAGS += -std=c++17 -Wall -Wextra -Werror -g
 HOST_CXX ?= c++
 
 .PHONY: all host-test clean
+.DELETE_ON_ERROR:
 
-all: $(ELF)
+all: $(ELF) $(MAP)
 
 include $(KOS_BASE)/Makefile.rules
 
-$(ELF): $(OBJECTS)
-	@mkdir -p "$(dir $@)"
-	kos-c++ -g -Wl,-Map,$(MAP) -o $@ $(OBJECTS)
+$(ELF) $(MAP) &: $(OBJECTS)
+	@mkdir -p "$(dir $(ELF))"
+	kos-c++ -g -Wl,-Map,$(MAP) -o $(ELF) $(OBJECTS)
 
 $(OBJ_ROOT)/%.o: src/%.cpp
 	@mkdir -p "$(dir $@)"
-	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c $< -o $@
+
+-include $(DEPS)
 
 host-test:
 	@mkdir -p "$(BUILD_ROOT)"
@@ -49,6 +53,8 @@ host-test:
 		-o $(BUILD_ROOT)/dreamcast-geometry-tests
 	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
 		tests/native/DreamcastRasterSeamTests.cpp \
+		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
+		src/platform/dreamcast/DreamcastCubeMesh.cpp \
 		-o $(BUILD_ROOT)/dreamcast-raster-seam-tests
 	$(BUILD_ROOT)/dreamcast-geometry-tests
 	$(BUILD_ROOT)/dreamcast-raster-seam-tests

@@ -68,7 +68,10 @@ if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {
 }
 $lock = Read-KeyValueFile $lockPath
 $actualFlycastHash = (Get-FileHash -LiteralPath $FlycastPath -Algorithm SHA256).Hash.ToLowerInvariant()
-if (-not [string]::IsNullOrWhiteSpace($lock['FlycastSha256']) -and $actualFlycastHash -ne $lock['FlycastSha256'].ToLowerInvariant()) {
+if ([string]::IsNullOrWhiteSpace($lock['FlycastSha256'])) {
+    throw "Toolchain lock does not contain a pinned Flycast SHA-256; refusing to launch."
+}
+if ($actualFlycastHash -ne $lock['FlycastSha256'].ToLowerInvariant()) {
     throw "Flycast SHA-256 mismatch; refusing to launch. Expected $($lock['FlycastSha256']), found $actualFlycastHash."
 }
 if ($lock['FlycastVersion'] -ne '2.7') {
