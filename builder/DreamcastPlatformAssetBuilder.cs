@@ -29,7 +29,9 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
             "helengine.dreamcast.builder",
             "0.2.0",
             "dc",
-            new EngineCompatibilityRange("0.4.0", "0.4.0"),
+            // The isolated v0.2 engine reports 0.4.0; the shared main engine reports
+            // 1.0.0+<commit>. Discovery enforces this range against the running engine.
+            new EngineCompatibilityRange("0.4.0", "999.0.0"),
             new ManifestCompatibilityRange(1, 1),
             ["dc"],
             ["dc"]);

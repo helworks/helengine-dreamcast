@@ -21,13 +21,17 @@ public sealed class DreamcastMaterialCooker {
             throw new InvalidOperationException($"Dreamcast material requires graphics profile 'dc-unlit', received '{request.SelectedGraphicsProfileId}'.");
         }
 
+        // The authored base color is mandatory; every other field falls back to the
+        // schema default declared by the platform definition when a project material
+        // carries only the engine's common fields (base-color, casts-shadow). A field
+        // that is present but unsupported is still rejected below.
         IReadOnlyDictionary<string, string> fields = request.FieldValues;
         string baseColorValue = Require(fields, DreamcastMaterialSchemaIds.BaseColorFieldId);
-        string texturePath = RequirePresent(fields, DreamcastMaterialSchemaIds.TextureRelativePathFieldId);
-        string lightingMode = Require(fields, DreamcastMaterialSchemaIds.LightingModeFieldId);
-        string transparencyMode = Require(fields, DreamcastMaterialSchemaIds.TransparencyFieldId);
-        string doubleSidedMode = Require(fields, DreamcastMaterialSchemaIds.DoubleSidedFieldId);
-        string vertexColorMode = Require(fields, DreamcastMaterialSchemaIds.VertexColorModeFieldId);
+        string texturePath = Resolve(fields, DreamcastMaterialSchemaIds.TextureRelativePathFieldId, string.Empty);
+        string lightingMode = Resolve(fields, DreamcastMaterialSchemaIds.LightingModeFieldId, "unlit");
+        string transparencyMode = Resolve(fields, DreamcastMaterialSchemaIds.TransparencyFieldId, "opaque");
+        string doubleSidedMode = Resolve(fields, DreamcastMaterialSchemaIds.DoubleSidedFieldId, "false");
+        string vertexColorMode = Resolve(fields, DreamcastMaterialSchemaIds.VertexColorModeFieldId, "ignore");
 
         if (!string.IsNullOrWhiteSpace(texturePath)) {
             throw new InvalidOperationException("Dreamcast dc-unlit-v1 does not support texture bindings.");
@@ -77,19 +81,20 @@ public sealed class DreamcastMaterialCooker {
         return value.Trim();
     }
 
-    /// <summary>Returns a schema field that must exist while allowing an intentional empty value.</summary>
+    /// <summary>Returns an optional schema field, substituting the schema default when it is absent.</summary>
     /// <param name="fields">Authored field map.</param>
-    /// <param name="fieldId">Required field identifier.</param>
-    /// <returns>Trimmed field value, including an allowed empty string.</returns>
-    static string RequirePresent(IReadOnlyDictionary<string, string> fields, string fieldId) {
+    /// <param name="fieldId">Field identifier.</param>
+    /// <param name="defaultValue">Schema default used when the field is absent.</param>
+    /// <returns>Trimmed authored value, or the default.</returns>
+    static string Resolve(IReadOnlyDictionary<string, string> fields, string fieldId, string defaultValue) {
         string value;
         if (fields == null) {
             throw new ArgumentNullException(nameof(fields));
-        } else if (!fields.TryGetValue(fieldId, out value)) {
-            throw new InvalidOperationException($"Dreamcast dc-unlit-v1 requires material field '{fieldId}'.");
+        } else if (!fields.TryGetValue(fieldId, out value) || value == null) {
+            return defaultValue;
         }
 
-        return value?.Trim() ?? string.Empty;
+        return value.Trim();
     }
 
     /// <summary>Parses a strict authored boolean field.</summary>

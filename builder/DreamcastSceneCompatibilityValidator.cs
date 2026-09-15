@@ -5,7 +5,6 @@ namespace helengine.dreamcast.builder;
 /// <summary>Validates the small scene subset that the Dreamcast v0.2 runtime can load.</summary>
 public sealed class DreamcastSceneCompatibilityValidator {
     const string PlatformId = "dc";
-    const string EngineVersion = "0.4.0";
 
     /// <summary>Validates the manifest and resolves its startup scene to cooked artifacts.</summary>
     /// <param name="manifest">Resolved editor build manifest.</param>
@@ -17,8 +16,10 @@ public sealed class DreamcastSceneCompatibilityValidator {
         if (!string.Equals(manifest.PlatformName, PlatformId, StringComparison.OrdinalIgnoreCase)) {
             throw new InvalidOperationException($"Dreamcast builder received platform '{manifest.PlatformName}'.");
         }
-        if (!string.Equals(manifest.RequiredEngineVersion, EngineVersion, StringComparison.Ordinal)) {
-            throw new InvalidOperationException($"Dreamcast v0.2 requires engine {EngineVersion}, received {manifest.RequiredEngineVersion}.");
+        // Engine compatibility is enforced by platform discovery against the descriptor
+        // range; the manifest must still name the engine it was produced for.
+        if (string.IsNullOrWhiteSpace(manifest.RequiredEngineVersion)) {
+            throw new InvalidOperationException("Dreamcast manifests must declare the required engine version.");
         }
         if (manifest.Scenes.Length == 0) {
             throw new InvalidOperationException("Dreamcast authored builds require one resolved startup scene.");

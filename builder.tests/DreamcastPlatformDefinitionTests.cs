@@ -17,7 +17,7 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Equal("helengine.dreamcast.builder", builder.Descriptor.BuilderId);
         Assert.Equal("0.2.0", builder.Descriptor.BuilderVersion);
         Assert.Equal("0.4.0", builder.Descriptor.SupportedEngineVersions.MinimumVersion);
-        Assert.Equal("0.4.0", builder.Descriptor.SupportedEngineVersions.MaximumVersion);
+        Assert.Equal("999.0.0", builder.Descriptor.SupportedEngineVersions.MaximumVersion);
         Assert.Equal("Sega Dreamcast", builder.Definition.DisplayName);
         Assert.Equal("dc-unlit", Assert.Single(builder.Definition.GraphicsProfiles).ProfileId);
         Assert.Equal("dc-unlit-v1", Assert.Single(builder.Definition.MaterialSchemas).SchemaId);

@@ -58,6 +58,34 @@ public sealed class DreamcastMaterialCookerTests {
         Assert.Contains(messageFragment, exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Confirms a project material carrying only the engine's common fields cooks through the schema defaults.</summary>
+    [Fact]
+    public void CookMaterial_AppliesSchemaDefaultsForCommonFieldsOnly() {
+        Dictionary<string, string> fields = new(StringComparer.OrdinalIgnoreCase) {
+            [DreamcastMaterialSchemaIds.BaseColorFieldId] = "#FFFFFFFF",
+            ["casts-shadow"] = "false"
+        };
+
+        PlatformMaterialCookResult result = new DreamcastPlatformAssetBuilder().CookMaterial(CreateRequest(fields));
+
+        helengine.PlatformMaterialAsset cooked = Assert.IsType<helengine.PlatformMaterialAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.False(cooked.Lit);
+        Assert.False(cooked.DoubleSided);
+        Assert.False(cooked.UseVertexColor);
+        Assert.Equal(string.Empty, cooked.TextureRelativePath);
+        Assert.Equal(byte.MaxValue, cooked.BaseColorA);
+    }
+
+    /// <summary>Confirms the base color itself is never defaulted.</summary>
+    [Fact]
+    public void CookMaterial_RequiresBaseColor() {
+        Dictionary<string, string> fields = new(StringComparer.OrdinalIgnoreCase) { ["casts-shadow"] = "false" };
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new DreamcastPlatformAssetBuilder().CookMaterial(CreateRequest(fields)));
+
+        Assert.Contains("base-color", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Confirms foreign schema ids are rejected before field interpretation.</summary>
     [Fact]
     public void CookMaterial_RejectsForeignSchema() {
