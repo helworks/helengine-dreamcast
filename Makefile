@@ -25,7 +25,8 @@ SOURCES := \
     src/platform/dreamcast/DreamcastRasterRenderer.cpp \
     src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
     src/platform/dreamcast/DreamcastCubeMesh.cpp \
-    src/platform/dreamcast/DreamcastAuthoredTransform.cpp
+    src/platform/dreamcast/DreamcastAuthoredTransform.cpp \
+    src/platform/dreamcast/DreamcastAuthoredFrame.cpp
 OBJECTS := $(patsubst src/%.cpp,$(OBJ_ROOT)/%.o,$(SOURCES))
 DEPS := $(OBJECTS:.o=.d)
 
@@ -200,11 +201,19 @@ host-test:
 		tests/native/DreamcastContentPathTests.cpp \
 		src/platform/dreamcast/DreamcastContentPath.cpp \
 		-o $(BUILD_ROOT)/dreamcast-content-path-tests
+	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
+		tests/native/DreamcastAuthoredSubmissionTests.cpp \
+		src/platform/dreamcast/DreamcastAuthoredFrame.cpp \
+		src/platform/dreamcast/DreamcastAuthoredTransform.cpp \
+		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
+		src/platform/dreamcast/DreamcastCubeMesh.cpp \
+		-o $(BUILD_ROOT)/dreamcast-authored-submission-tests
 	$(BUILD_ROOT)/dreamcast-geometry-tests
 	$(BUILD_ROOT)/dreamcast-authored-transform-tests
 	$(BUILD_ROOT)/dreamcast-authored-mesh-tests
 	$(BUILD_ROOT)/dreamcast-raster-seam-tests
 	$(BUILD_ROOT)/dreamcast-content-path-tests
+	$(BUILD_ROOT)/dreamcast-authored-submission-tests
 
 clean:
 	-rm -rf "$(OBJ_ROOT)" "$(ELF)" "$(MAP)"

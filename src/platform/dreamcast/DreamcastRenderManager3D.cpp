@@ -4,14 +4,29 @@
 
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
+#include "CameraClearSettings.hpp"
+#include "Core.hpp"
+#include "DreamcastAuthoredTransform.hpp"
 #include "DreamcastRuntimeMaterial.hpp"
 #include "DreamcastRuntimeModel.hpp"
+#include "Entity.hpp"
+#include "ICamera.hpp"
 #include "IContentStreamSource.hpp"
+#include "IDrawable3D.hpp"
+#include "IRenderQueue3D.hpp"
+#include "IRenderVisitor3D.hpp"
 #include "ModelAsset.hpp"
+#include "ObjectManager.hpp"
 #include "PlatformMaterialAsset.hpp"
+#include "float4.hpp"
+#include "float4x4.hpp"
+#include "int2.hpp"
+#include "runtime/array.hpp"
+#include "runtime/native_list.hpp"
 #include "system/io/stream.hpp"
 
 #include <stdexcept>
+#include <string>
 
 namespace helengine::dreamcast {
 
@@ -62,7 +77,149 @@ TAsset* deserializeAsset(std::string path, ::IContentStreamSource* source) {
     return typedAsset;
 }
 
+[[noreturn]] void rejectFrame(AuthoredFrameStatus status) {
+    throw std::runtime_error(std::string("Dreamcast authored frame rejected: ") +
+                             authoredFrameStatusName(status));
+}
+
+/// Visits the camera's ordered queue and forwards every enabled, layer-visible
+/// drawable to the assembler. The first assembler failure is retained and
+/// raised after the generated visit completes.
+class DrawableCollector final : public ::IRenderVisitor3D {
+public:
+    DrawableCollector(AuthoredFrameAssembler& assembler, std::uint16_t cameraLayerMask) noexcept
+        : assembler_(assembler), cameraLayerMask_(cameraLayerMask) {
+    }
+
+    void Visit(::IDrawable3D* drawable) override {
+        if (drawable == nullptr) {
+            record(AuthoredFrameStatus::InvalidMesh);
+            return;
+        }
+        ::Entity* owner = drawable->get_Parent();
+        if (owner == nullptr || !owner->get_IsHierarchyEnabled() ||
+            (owner->get_LayerMask() & cameraLayerMask_) == 0) {
+            return;
+        }
+        AuthoredDrawState state{};
+        state.worldFromModel = matrixFromGenerated(owner->get_WorldTransformMatrix());
+        auto* model = dynamic_cast<DreamcastRuntimeModel*>(drawable->get_Model());
+        state.mesh = model != nullptr ? model->meshView() : MeshView{nullptr, 0, nullptr, 0};
+        ::Array<::RuntimeMaterial*>* materials = drawable->get_Materials();
+        auto* material = materials != nullptr && materials->get_Length() > 0
+                             ? dynamic_cast<DreamcastRuntimeMaterial*>((*materials)[0])
+                             : nullptr;
+        state.hasMaterial = material != nullptr;
+        if (material != nullptr) {
+            state.materialColor = material->color();
+        }
+        record(assembler_.addDrawable(state));
+    }
+
+    AuthoredFrameStatus status() const noexcept {
+        return status_;
+    }
+
+private:
+    void record(AuthoredFrameStatus status) noexcept {
+        if (status_ == AuthoredFrameStatus::Ok) {
+            status_ = status;
+        }
+    }
+
+    AuthoredFrameAssembler& assembler_;
+    std::uint16_t cameraLayerMask_;
+    AuthoredFrameStatus status_ = AuthoredFrameStatus::Ok;
+};
+
+AuthoredCameraState gatherCamera(::ICamera& camera) {
+    ::Entity* owner = camera.get_Parent();
+    if (owner == nullptr) {
+        rejectFrame(AuthoredFrameStatus::InvalidCamera);
+    }
+    AuthoredCameraState state{};
+    state.worldFromCamera = matrixFromGenerated(owner->get_WorldTransformMatrix());
+    state.nearPlane = camera.get_NearPlaneDistance();
+    state.farPlane = camera.get_FarPlaneDistance();
+    const ::float4 viewport = camera.get_Viewport();
+    state.viewport = AuthoredViewport{viewport.X, viewport.Y, viewport.Z, viewport.W};
+    state.hasRenderTarget = camera.get_RenderTarget() != nullptr;
+    ::CameraClearSettings clear = camera.get_ClearSettings();
+    state.clearColorEnabled = clear.get_ClearColorEnabled();
+    state.clearDepthEnabled = clear.get_ClearDepthEnabled();
+    state.clearStencilEnabled = clear.get_ClearStencilEnabled();
+    const ::float4 clearColor = clear.get_ClearColor();
+    state.clearColor = ColorRgba{clearColor.X, clearColor.Y, clearColor.Z, clearColor.W};
+    return state;
+}
+
 } // namespace
+
+DreamcastRenderManager3D::DreamcastRenderManager3D() : ::RenderManager3D() {
+}
+
+void DreamcastRenderManager3D::installFrameSink(IAuthoredFrameSink* sink) noexcept {
+    sink_ = sink;
+}
+
+void DreamcastRenderManager3D::Draw() {
+    ::Core* core = get_OwnerCore();
+    ::ObjectManager* objectManager = core != nullptr ? core->get_ObjectManager() : nullptr;
+    ::List<::ICamera*>* cameras = objectManager != nullptr ? objectManager->get_Cameras() : nullptr;
+    const int32_t cameraCount = cameras != nullptr ? cameras->get_Count() : 0;
+    if (sink_ == nullptr) {
+        if (cameraCount == 0) {
+            // RuntimeInitProbe: an empty scene performs zero work.
+            lastSummary_ = AuthoredFrameSummary{};
+            return;
+        }
+        throw std::runtime_error("Dreamcast authored draw requested before a frame sink was installed.");
+    }
+
+    const ::int2 windowSize = get_MainWindowSize();
+    assembler_.begin(static_cast<float>(windowSize.X), static_cast<float>(windowSize.Y));
+    AuthoredFrameStatus status = AuthoredFrameStatus::Ok;
+    for (int32_t index = 0; index < cameraCount && status == AuthoredFrameStatus::Ok; ++index) {
+        ::ICamera* camera = cameras->get_Item(index);
+        if (camera == nullptr) {
+            status = AuthoredFrameStatus::InvalidCamera;
+            break;
+        }
+        status = assembler_.setCamera(gatherCamera(*camera));
+        if (status != AuthoredFrameStatus::Ok) {
+            break;
+        }
+        DrawableCollector collector(assembler_, camera->get_LayerMask());
+        ::IRenderQueue3D* queue = camera->get_RenderQueue3D();
+        if (queue == nullptr) {
+            status = AuthoredFrameStatus::NoDrawable;
+            break;
+        }
+        queue->VisitOrdered(&collector);
+        status = collector.status();
+    }
+    if (status == AuthoredFrameStatus::Ok) {
+        status = assembler_.present(*sink_);
+    }
+    lastSummary_ = assembler_.summary();
+    if (status != AuthoredFrameStatus::Ok) {
+        rejectFrame(status);
+    }
+    ++presentedFrames_;
+}
+
+void DreamcastRenderManager3D::Dispose() {
+    sink_ = nullptr;
+    ::RenderManager3D::Dispose();
+}
+
+const AuthoredFrameSummary& DreamcastRenderManager3D::lastFrameSummary() const noexcept {
+    return lastSummary_;
+}
+
+std::uint32_t DreamcastRenderManager3D::presentedFrameCount() const noexcept {
+    return presentedFrames_;
+}
 
 ::RuntimeMaterial* DreamcastRenderManager3D::BuildMaterialFromCooked(
     ::PlatformMaterialAsset* materialAsset) {

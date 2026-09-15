@@ -164,10 +164,20 @@ void setDiagnosticShutdownResult(std::uint32_t result) noexcept;
 
 } // namespace renderer_detail
 
+/// The diagnostic host's fixed dark clear color; authored frames supply their own.
+constexpr ColorRgba kDiagnosticClearColor{0.015f, 0.020f, 0.040f, 1.0f};
+
 class DreamcastRasterRenderer {
 public:
     bool initialize(const VideoState& video, const RendererConfig& config) noexcept;
+    /// Presents one validated frame with the diagnostic clear color.
     bool renderFrame(const GeometryFrame& geometry) noexcept;
+    /// Presents one validated frame, clearing to the given authored color first.
+    /// Exactly one scene begin/end pair is issued per call.
+    bool renderFrame(const GeometryFrame& geometry, const ColorRgba& clearColor) noexcept;
+    /// Blocks until the PVR has finished the last submitted scene, so owned
+    /// geometry can be released without a pending render referencing it.
+    bool waitIdle() noexcept;
     RendererDiagnostics diagnostics() const noexcept;
     void shutdown() noexcept;
 

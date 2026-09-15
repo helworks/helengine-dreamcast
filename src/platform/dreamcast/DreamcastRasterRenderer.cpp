@@ -84,6 +84,13 @@ bool validGeometryFrame(const GeometryFrame& geometry) noexcept {
     return true;
 }
 
+float clampUnit(float value) noexcept {
+    if (!std::isfinite(value) || value <= 0.0f) {
+        return 0.0f;
+    }
+    return value >= 1.0f ? 1.0f : value;
+}
+
 std::uint32_t toUint32(std::size_t value) noexcept {
     constexpr std::size_t kMax = 0xffffffffu;
     return static_cast<std::uint32_t>(value > kMax ? kMax : value);
@@ -221,7 +228,28 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
 }
 
 bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry) noexcept {
-    if (!initialized_ || !validGeometryFrame(geometry)) {
+    return renderFrame(geometry, kDiagnosticClearColor);
+}
+
+bool DreamcastRasterRenderer::waitIdle() noexcept {
+    if (!initialized_) {
+        return true;
+    }
+    bool ok = true;
+    if (pvr_wait_render_done() != 0) {
+        dbglog(DBG_WARNING, "DreamcastRasterRenderer: idle render drain timed out\n");
+        ok = false;
+    }
+    if (pvr_wait_ready() != 0) {
+        dbglog(DBG_WARNING, "DreamcastRasterRenderer: idle ready drain timed out\n");
+        ok = false;
+    }
+    return ok;
+}
+
+bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
+                                          const ColorRgba& clearColor) noexcept {
+    if (!initialized_ || !validGeometryFrame(geometry) || !finite(clearColor)) {
         renderer_detail::setDiagnosticError(kDiagnosticErrorSubmission);
         return false;
     }
@@ -240,6 +268,9 @@ bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry) noexcep
     const std::uint64_t waitEnd = timer_ns_gettime64();
     const std::uint64_t submissionStart = waitEnd;
 
+    // The background color is the authored clear for this frame. It is set
+    // after wait-ready so it cannot apply to a scene that is still rendering.
+    pvr_set_bg_color(clampUnit(clearColor.r), clampUnit(clearColor.g), clampUnit(clearColor.b));
     pvr_scene_begin();
     bool sceneStarted = true;
     if (pvr_list_begin(PVR_LIST_OP_POLY) != 0) {
