@@ -45,6 +45,12 @@ endif
 ifeq ($(wildcard $(CATALOG_ROOT)),)
 $(error CATALOG_ROOT does not exist: $(CATALOG_ROOT))
 endif
+ifeq ($(wildcard $(CATALOG_ROOT)/dc_runtime_scene_catalog.hpp),)
+$(error CATALOG_ROOT does not contain dc_runtime_scene_catalog.hpp: $(CATALOG_ROOT))
+endif
+ifeq ($(wildcard $(CATALOG_ROOT)/dc_runtime_scene_catalog.cpp),)
+$(error CATALOG_ROOT does not contain dc_runtime_scene_catalog.cpp: $(CATALOG_ROOT))
+endif
 ifeq ($(wildcard $(CONTENT_ROOT)),)
 $(error CONTENT_ROOT does not exist: $(CONTENT_ROOT))
 endif
@@ -82,22 +88,32 @@ AUTHORED_SOURCES := \
     src/platform/dreamcast/DreamcastRuntimeModel.cpp \
     src/platform/dreamcast/DreamcastRuntimeMaterial.cpp \
     src/platform/dreamcast/DreamcastRuntimeSceneCatalog.cpp \
+    src/platform/dreamcast/DreamcastSceneBootstrap.cpp \
     src/platform/dreamcast/DreamcastRuntimeHost.cpp
 AUTHORED_OBJECTS := $(patsubst src/%.cpp,$(OBJ_ROOT)/%.o,$(AUTHORED_SOURCES))
 OBJECTS += $(AUTHORED_OBJECTS)
 DEPS += $(AUTHORED_OBJECTS:.o=.d)
 ifeq ($(RUNTIME_INIT_PROBE),1)
 CPPFLAGS += -DHELENGINE_DREAMCAST_RUNTIME_INIT_PROBE=1
+endif
 CATALOG_SOURCE := $(CATALOG_ROOT)/dc_runtime_scene_catalog.cpp
 CATALOG_HEADER := $(CATALOG_ROOT)/dc_runtime_scene_catalog.hpp
 CATALOG_OBJECT := $(OBJ_ROOT)/catalog/dc_runtime_scene_catalog.o
 OBJECTS += $(CATALOG_OBJECT)
 DEPS += $(CATALOG_OBJECT:.o=.d)
-endif
+ROMFS_IMAGE := $(BUILD_ROOT)/romdisk.img
+ROMDISK_SOURCE := $(BUILD_ROOT)/romdisk.c
+ROMDISK_DATA_OBJECT := $(OBJ_ROOT)/romdisk/romdisk.o
+ROMDISK_BASE_OBJECT := $(OBJ_ROOT)/romdisk/romdiskbase.o
+GENROMFS ?= /opt/toolchains/dc/kos-built/utils/genromfs/genromfs
+BIN2C ?= /opt/toolchains/dc/kos-built/utils/bin2c/bin2c
+OBJECTS += $(ROMDISK_DATA_OBJECT) $(ROMDISK_BASE_OBJECT)
+DEPS += $(ROMDISK_DATA_OBJECT:.o=.d) $(ROMDISK_BASE_OBJECT:.o=.d)
 endif
 
 CPPFLAGS += -Isrc
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror -g
+CFLAGS += -Wall -Wextra -Werror -g
 HOST_CXX ?= c++
 
 .PHONY: all host-test clean
@@ -107,7 +123,7 @@ all: $(ELF) $(MAP)
 
 include $(KOS_BASE)/Makefile.rules
 
-$(ELF) $(MAP) &: $(OBJECTS)
+$(ELF) $(MAP) &: $(OBJECTS) $(ROMFS_IMAGE)
 	@mkdir -p "$(dir $(ELF))"
 	kos-c++ -g -Wl,-Map,$(MAP) -o $(ELF) $(OBJECTS)
 
@@ -124,11 +140,28 @@ $(OBJ_ROOT)/generated-extra/%.o: $(GENERATED_CORE_ROOT)/%.cpp
 	@mkdir -p "$(dir $@)"
 	kos-c++ $(CXXFLAGS) $(GENERATED_WARNING_FLAGS) $(CPPFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
 
-ifeq ($(RUNTIME_INIT_PROBE),1)
 $(CATALOG_OBJECT): $(CATALOG_SOURCE) $(CATALOG_HEADER)
 	@mkdir -p "$(dir $@)"
 	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
-endif
+
+FORCE:
+
+$(ROMFS_IMAGE): FORCE
+	@mkdir -p "$(dir $@)"
+	@test "$(RUNTIME_INIT_PROBE)" = "1" || test -n "$$(find "$(CONTENT_ROOT)" -type f -print -quit 2>/dev/null)"
+	$(GENROMFS) -f "$@" -d "$(CONTENT_ROOT)" -V helengine-dc -v -x .gitignore -x .DS_Store -x Thumbs.db
+
+$(ROMDISK_SOURCE): $(ROMFS_IMAGE)
+	@mkdir -p "$(dir $@)"
+	$(BIN2C) "$<" "$@" romdisk
+
+$(ROMDISK_DATA_OBJECT): $(ROMDISK_SOURCE)
+	@mkdir -p "$(dir $@)"
+	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(ROMDISK_BASE_OBJECT): $(KOS_BASE)/kernel/romdisk/romdiskbase.c
+	@mkdir -p "$(dir $@)"
+	kos-cc $(CFLAGS) $(CPPFLAGS) -I$(KOS_BASE)/include -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
 
 $(GENERATED_SOURCE_LIST): $(ALL_GENERATED_SOURCES)
 	@mkdir -p "$(dir $@)"

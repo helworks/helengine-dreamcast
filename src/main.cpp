@@ -9,7 +9,7 @@ int main() {
 #if defined(HELENGINE_DREAMCAST_RUNTIME_INIT_PROBE)
     return helengine::dreamcast::runDreamcastRuntimeInitProbe();
 #else
-    return 2;
+    return helengine::dreamcast::runDreamcastAuthoredScene();
 #endif
 #else
     helengine::dreamcast::HostConfig config{};

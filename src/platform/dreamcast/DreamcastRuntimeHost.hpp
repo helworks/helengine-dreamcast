@@ -49,6 +49,10 @@ constexpr std::uint32_t kDreamcastRuntimeProbeVersion = 1u;
 /// This is an explicit compatibility probe; it is never an authored-scene pass.
 int runDreamcastRuntimeInitProbe() noexcept;
 
+/// Boots the normal authored runtime, loads the manifest startup scene from /rd,
+/// and enters the bounded native update loop used by Gate B.
+int runDreamcastAuthoredScene() noexcept;
+
 } // namespace helengine::dreamcast
 
 #endif

@@ -10,12 +10,19 @@
 #include "DreamcastRenderManager3D.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "DreamcastRuntimeSceneCatalog.hpp"
+#include "DreamcastSceneBootstrap.hpp"
 #include "DreamcastVideo.hpp"
+#include "ICamera.hpp"
+#include "ObjectManager.hpp"
+#include "SceneLoadMode.hpp"
+#include "SceneManager.hpp"
 #include "PlatformInfo.hpp"
 #include "runtime/native_exceptions.hpp"
 
 #include <arch/arch.h>
 #include <arch/stack.h>
+#include <dc/maple.h>
+#include <dc/maple/controller.h>
 #include <kos/dbglog.h>
 #include <kos/mm.h>
 #include <kos/thread.h>
@@ -29,6 +36,8 @@ namespace helengine::dreamcast {
 
 extern "C" {
 volatile DreamcastRuntimeProbeSnapshot helengine_dreamcast_runtime_probe;
+volatile std::uint32_t helengine_dreamcast_authored_scene_ready;
+volatile std::uint32_t helengine_dreamcast_authored_frame_count;
 }
 
 namespace {
@@ -85,6 +94,17 @@ void resetProbeSnapshot() noexcept {
     snapshot.frameComplete = 0u;
     snapshot.coreDisposed = 0u;
     snapshot.cleanShutdown = 0u;
+    helengine_dreamcast_authored_scene_ready = 0u;
+    helengine_dreamcast_authored_frame_count = 0u;
+}
+
+bool authoredStartPressed() noexcept {
+    maple_device_t* controller = maple_enum_type(0, MAPLE_FUNC_CONTROLLER);
+    if (controller == nullptr) {
+        return false;
+    }
+    const cont_state_t* state = static_cast<const cont_state_t*>(maple_dev_status(controller));
+    return state != nullptr && (state->buttons & CONT_START) != 0;
 }
 
 DreamcastHeapSnapshot captureHeapSnapshot() {
@@ -262,6 +282,177 @@ int runDreamcastRuntimeInitProbe() noexcept {
     // bounded interval after all native cleanup has run and before main
     // returns to the KOS launcher.
     thd_sleep(2000);
+    return result;
+}
+
+int runDreamcastAuthoredScene() noexcept {
+    resetProbeSnapshot();
+    logHeapSnapshot("start");
+    DreamcastVideo video;
+    VideoState videoState{};
+    if (!video.initialize(VideoConfig{}, videoState)) {
+        dbglog(DBG_ERROR, "DreamcastAuthored: video initialization failed\n");
+        setProbeError(kProbeErrorVideoInitialization);
+        return 1;
+    }
+
+    ::Core* core = nullptr;
+    ::CoreInitializationOptions* options = nullptr;
+    ::PlatformInfo* platformInfo = nullptr;
+    DreamcastSceneCatalogHandle sceneCatalog;
+    DreamcastContentStreamSource content;
+    DreamcastInputBackend input;
+    DreamcastRenderManager3D render3D;
+    DreamcastRenderManager2D render2D;
+    int result = 0;
+    bool coreDisposed = false;
+    bool sceneLoaded = false;
+    ::SceneManager* sceneManager = nullptr;
+
+    try {
+        sceneCatalog = createAuthoredSceneCatalog();
+        options = new ::CoreInitializationOptions();
+        options->ContentStreamSource = &content;
+        options->SceneCatalog = sceneCatalog.catalog;
+        options->UpdateListInitialCapacity = 16;
+        options->RenderList2DInitialCapacity = 16;
+        options->RenderList3DInitialCapacity = 16;
+        options->DefaultUpdateDeltaSeconds = 1.0 / 60.0;
+        options->PhysicsFixedStepSeconds = 1.0 / 60.0;
+        options->PhysicsMaxStepsPerUpdate = 2;
+        options->CommitPendingSceneOperationsDuringDraw = false;
+        // Generated runtime startup metadata is 1.0.0; the builder contract
+        // remains 0.2.0 and the required engine version remains 0.4.0.
+        platformInfo = new ::PlatformInfo("dc", "1.0.0");
+        render3D.AddWindow(0, static_cast<int32_t>(videoState.width),
+                           static_cast<int32_t>(videoState.height));
+        core = new ::Core(options);
+        core->Initialize(&render3D, &render2D, &input, platformInfo, options);
+        helengine_dreamcast_runtime_probe.status = kProbeStatusCoreReady;
+        helengine_dreamcast_runtime_probe.stage = kProbeStageCoreReady;
+        helengine_dreamcast_runtime_probe.coreReady = 1u;
+        logHeapSnapshot("core-ready");
+
+        sceneManager = core->get_SceneManager();
+        ::ObjectManager* objectManager = core->get_ObjectManager();
+        if (sceneManager == nullptr || objectManager == nullptr) {
+            throw std::runtime_error("Dreamcast authored Core did not expose scene/object managers.");
+        }
+        sceneManager->LoadScene(sceneCatalog.startupSceneId, ::SceneLoadMode::Single);
+        core->Update(0.0);
+        core->CompleteFrameBoundary();
+        const int32_t loadedScenes = sceneManager->get_LoadedScenes()->get_Count();
+        const int32_t cameras = objectManager->get_Cameras()->get_Count();
+        const int32_t drawables3D = objectManager->get_Drawables3D()->get_Count();
+        const int32_t models = sceneManager->get_ActiveOwnedModelReferenceCount();
+        const int32_t materials = sceneManager->get_ActiveOwnedMaterialReferenceCount();
+        if (loadedScenes != 1 || cameras != 1 || drawables3D != 1 || models != 1 || materials != 1) {
+            throw std::runtime_error("Dreamcast startup scene cardinality did not match the v0.2 contract.");
+        }
+        sceneLoaded = true;
+        ::ICamera* camera = objectManager->get_Cameras()->get_Item(0);
+        if (camera == nullptr) {
+            throw std::runtime_error("Dreamcast startup scene camera was null.");
+        }
+        ::float4 clear = camera->get_ClearSettings().get_ClearColor();
+        dbglog(DBG_INFO,
+               "DreamcastAuthored: scene=%s loaded=%d cameras=%d drawables3d=%d models=%d materials=%d near=%f far=%f clear=%f,%f,%f,%f\n",
+               sceneCatalog.startupSceneId.c_str(), static_cast<int>(loadedScenes), static_cast<int>(cameras),
+               static_cast<int>(drawables3D), static_cast<int>(models), static_cast<int>(materials),
+               static_cast<double>(camera->get_NearPlaneDistance()), static_cast<double>(camera->get_FarPlaneDistance()),
+               static_cast<double>(clear.X), static_cast<double>(clear.Y), static_cast<double>(clear.Z), static_cast<double>(clear.W));
+        helengine_dreamcast_authored_scene_ready = 1u;
+
+        bool running = true;
+        std::uint32_t authoredFrameCount = 0u;
+        while (running) {
+            core->Update(1.0 / 60.0);
+            core->Draw();
+            core->CompleteFrameBoundary();
+            ++authoredFrameCount;
+            helengine_dreamcast_authored_frame_count = authoredFrameCount;
+            helengine_dreamcast_runtime_probe.frameComplete = 1u;
+            helengine_dreamcast_runtime_probe.status = kProbeStatusFrameComplete;
+            helengine_dreamcast_runtime_probe.stage = kProbeStageFrameComplete;
+            if ((authoredFrameCount % 60u) == 0u) {
+                logHeapSnapshot("running");
+            }
+            if (authoredStartPressed()) {
+                dbglog(DBG_INFO, "DreamcastAuthored: Start requested\n");
+                running = false;
+            }
+#if defined(HELENGINE_DREAMCAST_AUTHORED_TEST_FRAMES)
+            if (helengine_dreamcast_authored_frame_count >= HELENGINE_DREAMCAST_AUTHORED_TEST_FRAMES) {
+                running = false;
+            }
+#endif
+            thd_sleep(16);
+        }
+
+        core->Dispose();
+        coreDisposed = true;
+        helengine_dreamcast_runtime_probe.coreDisposed = 1u;
+        helengine_dreamcast_runtime_probe.status = kProbeStatusCoreDisposed;
+        logHeapSnapshot("core-disposed");
+    } catch (::Exception* exception) {
+        dbglog(DBG_ERROR, "DreamcastAuthored: generated exception: %s\n",
+               exception == nullptr ? "unknown" : exception->what());
+        delete exception;
+        setProbeError(kProbeErrorGeneratedException);
+        result = 2;
+    } catch (const std::exception& exception) {
+        dbglog(DBG_ERROR, "DreamcastAuthored: native exception: %s\n", exception.what());
+        setProbeError(kProbeErrorNativeException);
+        result = 2;
+    } catch (...) {
+        dbglog(DBG_ERROR, "DreamcastAuthored: startup failed\n");
+        setProbeError(kProbeErrorUnknownException);
+        result = 2;
+    }
+
+    if (core != nullptr && sceneLoaded && sceneManager != nullptr) {
+        try {
+            sceneManager->UnloadScene(sceneCatalog.startupSceneId);
+            core->Update(0.0);
+            core->CompleteFrameBoundary();
+            if (sceneManager->get_LoadedScenes()->get_Count() != 0 ||
+                sceneManager->get_ActiveOwnedModelReferenceCount() != 0 ||
+                sceneManager->get_ActiveOwnedMaterialReferenceCount() != 0) {
+                throw std::runtime_error("Dreamcast authored scene unload did not release all owned references.");
+            }
+            sceneLoaded = false;
+        } catch (...) {
+            result = result == 0 ? 2 : result;
+        }
+    }
+    if (core != nullptr && !coreDisposed) {
+        try {
+            core->Dispose();
+            coreDisposed = true;
+            helengine_dreamcast_runtime_probe.coreDisposed = 1u;
+            helengine_dreamcast_runtime_probe.status = kProbeStatusCoreDisposed;
+            logHeapSnapshot("core-disposed");
+        } catch (...) {
+            result = result == 0 ? 2 : result;
+        }
+    }
+    delete core;
+    delete platformInfo;
+    delete options;
+    sceneCatalog.dispose();
+    video.shutdown();
+    logHeapSnapshot("shutdown");
+    if (result == 0) {
+        helengine_dreamcast_runtime_probe.cleanShutdown = 1u;
+        helengine_dreamcast_runtime_probe.status = kProbeStatusCleanShutdown;
+        helengine_dreamcast_runtime_probe.stage = kProbeStageShutdown;
+        dbglog(DBG_INFO, "DreamcastAuthored: clean-shutdown frames=%u\n",
+               static_cast<unsigned>(helengine_dreamcast_authored_frame_count));
+    } else {
+        setProbeError(helengine_dreamcast_runtime_probe.errorCode == 0u
+                          ? kProbeErrorUnknownException
+                          : helengine_dreamcast_runtime_probe.errorCode);
+    }
     return result;
 }
 

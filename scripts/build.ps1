@@ -69,6 +69,7 @@ function Invoke-CheckedNative {
 function Get-SourceInputFingerprint {
     $sourceInputFiles = @(
         Get-Item -LiteralPath (Join-Path $repoRoot 'Makefile')
+        Get-Item -LiteralPath (Join-Path $repoRoot 'scripts/build.ps1')
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -File -Recurse
     )
@@ -133,18 +134,10 @@ if ($Mode -eq 'Authored') {
     if (-not (Test-Path -LiteralPath $CatalogRoot -PathType Container)) {
         throw "Authored catalog root does not exist: $CatalogRoot"
     }
-    if ($RuntimeInitProbe) {
-        foreach ($catalogFileName in @('dc_runtime_scene_catalog.hpp', 'dc_runtime_scene_catalog.cpp')) {
-            if (-not (Test-Path -LiteralPath (Join-Path $CatalogRoot $catalogFileName) -PathType Leaf)) {
-                throw "RuntimeInitProbe requires the dedicated Task 4 catalog ABI file '$catalogFileName' in CatalogRoot: $CatalogRoot"
-            }
+    foreach ($catalogFileName in @('dc_runtime_scene_catalog.hpp', 'dc_runtime_scene_catalog.cpp')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $CatalogRoot $catalogFileName) -PathType Leaf)) {
+            throw "Authored mode requires the Task 4 catalog ABI file '$catalogFileName' in CatalogRoot: $CatalogRoot"
         }
-    }
-    if (-not $RuntimeInitProbe -and -not (Get-ChildItem -LiteralPath $CatalogRoot -File -Recurse | Select-Object -First 1)) {
-        throw "Authored catalog root is empty: $CatalogRoot"
-    }
-    if (-not $RuntimeInitProbe) {
-        throw 'Authored scene loading is not available until the Task 4 startup catalog is connected; use RuntimeInitProbe only for Gate A.'
     }
     if ($StaticPose -or $DisableCulling -or $ReverseTriangleOrder -or $NearPlaneProbe -or
         $ScreenEdgeProbe -or $StopAfterSeconds -gt 0.0 -or $Scene -ne 'Cube') {

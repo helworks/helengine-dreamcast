@@ -2,6 +2,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $buildScript = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\build.ps1'))
+# Reuse the running PowerShell 7 host; pwsh is not guaranteed to be on PATH.
+$powershellPath = (Get-Process -Id $PID).Path
 $testRoot = [IO.Path]::GetFullPath((Join-Path 'C:\dev\helworks\builds\helengine-dc\v02\execution' ("authored-build-input-tests-{0}" -f $PID)))
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
@@ -11,7 +13,7 @@ function Invoke-ExpectedFailure {
         [string[]]$Arguments,
         [string]$Message
     )
-    $output = @(& pwsh -NoProfile -File $buildScript @Arguments 2>&1)
+    $output = @(& $powershellPath -NoProfile -File $buildScript @Arguments 2>&1)
     if ($LASTEXITCODE -eq 0) {
         throw "$Name unexpectedly succeeded."
     }
@@ -42,12 +44,12 @@ try {
     Invoke-ExpectedFailure `
         -Name 'missing probe catalog ABI' `
         -Arguments @('-BuildId', 'missing-probe-catalog', '-Mode', 'Authored', '-GeneratedCoreRoot', $generatedRoot, '-ContentRoot', $contentRoot, '-CatalogRoot', $catalogRoot, '-RuntimeInitProbe', '-OutputRoot', $testRoot) `
-        -Message 'RuntimeInitProbe requires the dedicated Task 4 catalog ABI file'
+        -Message 'Authored mode requires the Task 4 catalog ABI file'
 
     Invoke-ExpectedFailure `
         -Name 'non-probe authored catalog' `
         -Arguments @('-BuildId', 'non-probe-authored', '-Mode', 'Authored', '-GeneratedCoreRoot', $generatedRoot, '-ContentRoot', $contentRoot, '-CatalogRoot', $catalogRoot, '-OutputRoot', $testRoot) `
-        -Message 'Authored scene loading is not available until the Task 4 startup catalog is connected'
+        -Message 'Authored mode requires the Task 4 catalog ABI file'
 
     Set-Content -LiteralPath (Join-Path $catalogRoot 'dc_runtime_scene_catalog.hpp') -Value @'
 #pragma once
