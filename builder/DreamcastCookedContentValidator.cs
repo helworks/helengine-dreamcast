@@ -10,7 +10,13 @@ public sealed class DreamcastCookedContentValidator {
     const string MeshTypeId = "helengine.MeshComponent";
     const string RendererFamilyId = "dc-unlit";
 
-    /// <summary>Validates the startup scene and every model/material it references inside the staged ROMFS tree.</summary>
+    /// <summary>Validates the startup scene cardinality and every staged model and material in the ROMFS tree.</summary>
+    /// <remarks>
+    /// The cooked scene's reference list still carries authored paths while the runtime resolves
+    /// component payloads to cooked paths, so every staged file is classified by its deserialized
+    /// type instead of by reference. Exact one-model/one-material usage is re-checked at runtime
+    /// through the owned reference counts after the startup scene loads.
+    /// </remarks>
     /// <param name="stagedContentRoot">Fresh staging root produced by the content stager.</param>
     /// <param name="startupSceneCookedRelativePath">Normalized cooked path of the startup scene.</param>
     public void Validate(string stagedContentRoot, string startupSceneCookedRelativePath) {
@@ -18,6 +24,9 @@ public sealed class DreamcastCookedContentValidator {
             throw new ArgumentException("Staged content root is required.", nameof(stagedContentRoot));
         }
         string root = Path.GetFullPath(stagedContentRoot);
+        if (!Directory.Exists(root)) {
+            throw new DirectoryNotFoundException($"Staged content root does not exist: {root}");
+        }
         string scenePath = DreamcastSceneCompatibilityValidator.NormalizeRelativePath(startupSceneCookedRelativePath, "startup scene path");
         Asset sceneAsset = ReadAsset(root, scenePath);
         if (sceneAsset is not SceneAsset scene) {
@@ -38,21 +47,27 @@ public sealed class DreamcastCookedContentValidator {
 
         int modelCount = 0;
         int materialCount = 0;
-        foreach (SceneAssetReference reference in scene.AssetReferences) {
-            string referencePath = DreamcastSceneCompatibilityValidator.NormalizeRelativePath(reference.RelativePath, "scene asset reference");
-            Asset referenced = ReadAsset(root, referencePath);
-            if (referenced is ModelAsset model) {
-                ValidateModel(model, referencePath);
+        foreach (string fullPath in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).OrderBy(path => path, StringComparer.Ordinal)) {
+            string relativePath = Path.GetRelativePath(root, fullPath).Replace('\\', '/');
+            if (string.Equals(relativePath, scenePath, StringComparison.Ordinal)) {
+                continue;
+            }
+            Asset staged = ReadAsset(root, relativePath);
+            if (staged is ModelAsset model) {
+                ValidateModel(model, relativePath);
                 modelCount++;
-            } else if (referenced is PlatformMaterialAsset material) {
-                ValidateMaterial(material, referencePath);
+            } else if (staged is PlatformMaterialAsset material) {
+                ValidateMaterial(material, relativePath);
                 materialCount++;
             } else {
-                throw new InvalidOperationException($"Startup scene references unsupported cooked asset type '{referenced.GetType().Name}' at '{referencePath}'.");
+                throw new InvalidOperationException($"Staged package contains unsupported cooked asset type '{staged.GetType().Name}' at '{relativePath}'.");
             }
         }
-        if (modelCount != 1 || materialCount != 1) {
-            throw new InvalidOperationException($"Dreamcast v0.2 requires the startup scene to reference exactly one model and one material; found {modelCount} model(s) and {materialCount} material(s).");
+        if (modelCount < 1) {
+            throw new InvalidOperationException("Staged package contains no model; the startup mesh has nothing to draw.");
+        }
+        if (materialCount < 1) {
+            throw new InvalidOperationException("Staged package contains no dc-unlit material; the startup mesh has no material.");
         }
     }
 

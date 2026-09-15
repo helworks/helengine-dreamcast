@@ -72,16 +72,31 @@ public sealed class DreamcastCookedContentValidatorTests {
         Assert.Contains(fragment, exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>A scene reference whose cooked file is absent from the staged package is rejected.</summary>
+    /// <summary>A package whose model file is absent is rejected even though the scene still names it.</summary>
     [Fact]
-    public void RejectsMissingReferencedModel() {
+    public void RejectsPackageWithoutModel() {
         using TemporaryDirectory temporary = new();
         DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
         File.Delete(Path.Combine(temporary.Path, DreamcastCookedTestContent.ModelPath.Replace('/', Path.DirectorySeparatorChar)));
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
 
-        Assert.Contains("missing", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no model", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A staged asset of an unsupported type is rejected with its path.</summary>
+    [Fact]
+    public void RejectsUnsupportedStagedAssetType() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        byte[] modelBytes = helengine.files.AssetSerializer.SerializeToBytes(DreamcastCookedTestContent.CreateModel(4, 2));
+        byte[] materialBytes = helengine.files.AssetSerializer.SerializeToBytes(DreamcastCookedTestContent.CreateMaterial());
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "cooked/scenes/other.hasset", DreamcastCookedTestContent.SerializeScene(modelBytes, materialBytes, true, null));
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("unsupported cooked asset type", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cooked/scenes/other.hasset", exception.Message, StringComparison.Ordinal);
     }
 
     static void Validate(string root) {
