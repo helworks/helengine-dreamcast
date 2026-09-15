@@ -1,6 +1,6 @@
 # Dreamcast v0.1 build and launch
 
-The supported route uses Docker Engine 29.6.1, PowerShell 7+, the pinned KallistiOS checkout, and Flycast 2.7. The compiler comes from the pinned `pcercuei/dreamcast-toolchain` base image; the image is rebuilt locally from [docker/Dockerfile](../docker/Dockerfile) and recorded in [toolchain-lock.txt](../toolchain-lock.txt).
+The supported route uses Docker Engine with BuildKit and Linux-container support, PowerShell 7+, the pinned KallistiOS checkout, and Flycast 2.7. Docker Engine 29.6.1 was tested. The compiler comes from the pinned `pcercuei/dreamcast-toolchain` base image; the image is rebuilt locally from [docker/Dockerfile](../docker/Dockerfile) and recorded in [toolchain-lock.txt](../toolchain-lock.txt).
 
 The locked inputs are:
 
@@ -9,6 +9,16 @@ The locked inputs are:
 - KOS checkout: `C:\dev\helworks\builds\helengine-dc\dependencies\kos`, commit `fcfa7d869471591ca1c777543261a7bfea7cb726`.
 - ABI: `sh-elf`, SuperH little-endian, `-m4-single -ml`; the wrapper is `kos-c++` inside the image.
 - Flycast executable: `C:\dev\helworks\builds\helengine-dc\dependencies\flycast-2.7\flycast.exe`, version 2.7.
+
+On a fresh machine, create the external KOS checkout and place it at the locked path before running the preparation script. The preparation script validates this checkout and does not fetch or change it implicitly:
+
+```powershell
+git clone https://github.com/KallistiOS/KallistiOS.git C:\dev\helworks\builds\helengine-dc\dependencies\kos
+git -C C:\dev\helworks\builds\helengine-dc\dependencies\kos fetch --depth 1 origin fcfa7d869471591ca1c777543261a7bfea7cb726
+git -C C:\dev\helworks\builds\helengine-dc\dependencies\kos checkout --detach fcfa7d869471591ca1c777543261a7bfea7cb726
+```
+
+The pinned Flycast 2.7 executable is supplied separately at the path above; its SHA-256 is recorded in `toolchain-lock.txt` and checked before launch.
 
 From the worktree root, prepare the image and create a fresh external build directory:
 
