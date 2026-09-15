@@ -103,10 +103,13 @@ const char* sceneName(HostScene scene) noexcept {
 } // namespace
 
 int runDreamcastHost(const HostConfig& config) noexcept {
+    renderer_detail::resetDiagnosticSnapshot();
     DreamcastVideo video;
     VideoState videoState{};
     if (!video.initialize(VideoConfig{}, videoState)) {
         dbglog(DBG_ERROR, "DreamcastHost: video initialization failed\n");
+        renderer_detail::setDiagnosticError(kDiagnosticErrorVideoInitialization);
+        renderer_detail::setDiagnosticShutdownResult(1);
         return 1;
     }
     dbglog(DBG_INFO, "DreamcastHost: scene=%s mode=%ux%u refresh=%uHz\n",
@@ -119,13 +122,17 @@ int runDreamcastHost(const HostConfig& config) noexcept {
     if (!renderer.initialize(videoState, rendererConfig)) {
         dbglog(DBG_ERROR, "DreamcastHost: renderer initialization failed\n");
         video.shutdown();
+        renderer_detail::setDiagnosticError(kDiagnosticErrorRendererInitialization);
+        renderer_detail::setDiagnosticShutdownResult(2);
         return 2;
     }
+    helengine_dreamcast_diagnostics.status = kDiagnosticInitialized;
 
     float yaw = 0.55f;
     float pitch = -0.35f;
     const std::uint64_t startTime = timer_ns_gettime64();
     std::uint64_t previousTime = startTime;
+    std::uint64_t previousFrameStart = startTime;
     bool running = true;
     int result = 0;
     bool reportedGeometry = false;
@@ -135,6 +142,8 @@ int runDreamcastHost(const HostConfig& config) noexcept {
         const float rawDeltaSeconds = secondsBetween(now, previousTime);
         const float deltaSeconds = renderer_detail::clampSimulationDelta(rawDeltaSeconds);
         previousTime = now;
+        renderer_detail::setDiagnosticFrameInterval(now - previousFrameStart);
+        previousFrameStart = now;
 
         if (config.animate) {
             yaw += kYawRadiansPerSecond * deltaSeconds;
@@ -148,15 +157,20 @@ int runDreamcastHost(const HostConfig& config) noexcept {
         }
 
         GeometryFrame geometry{};
+        const std::uint64_t geometryStart = timer_ns_gettime64();
         const GeometryStatus status = makeGeometry(config, videoState, yaw, pitch, geometry);
+        const std::uint64_t geometryEnd = timer_ns_gettime64();
+        renderer_detail::setDiagnosticGeometryTime(geometryEnd - geometryStart);
         if (status != GeometryStatus::Ok) {
             dbglog(DBG_ERROR, "DreamcastHost: geometry stage failed (%u)\n",
                    static_cast<unsigned>(status));
+            renderer_detail::setDiagnosticError(kDiagnosticErrorGeometry);
             result = 3;
             break;
         }
         if (!renderer.renderFrame(geometry)) {
             dbglog(DBG_ERROR, "DreamcastHost: renderer submission failed\n");
+            renderer_detail::setDiagnosticError(kDiagnosticErrorSubmission);
             result = 4;
             break;
         }
@@ -180,6 +194,7 @@ int runDreamcastHost(const HostConfig& config) noexcept {
 
     renderer.shutdown();
     video.shutdown();
+    renderer_detail::setDiagnosticShutdownResult(static_cast<std::uint32_t>(result));
     dbglog(result == 0 ? DBG_INFO : DBG_ERROR, "DreamcastHost: shutdown complete\n");
     return result;
 }

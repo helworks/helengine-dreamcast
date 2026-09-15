@@ -3,6 +3,7 @@
 #include "DreamcastGeometryPipeline.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace helengine::dreamcast {
@@ -32,6 +33,9 @@ namespace renderer_detail {
 constexpr std::uint32_t kVertexCommand = 0xe0000000u;
 constexpr std::uint32_t kVertexCommandEol = 0xf0000000u;
 constexpr float kMaxSimulationDeltaSeconds = 0.10f;
+
+enum class CullWinding : std::uint8_t { Clockwise, CounterClockwise };
+constexpr CullWinding kDefaultCullWinding = CullWinding::CounterClockwise;
 
 struct alignas(32) VertexPacket {
     std::uint32_t flags;
@@ -85,6 +89,69 @@ inline float clampSimulationDelta(float deltaSeconds) noexcept {
     return deltaSeconds > kMaxSimulationDeltaSeconds ? kMaxSimulationDeltaSeconds
                                                       : deltaSeconds;
 }
+
+} // namespace renderer_detail
+
+struct DreamcastDiagnosticSnapshot {
+    std::uint32_t magic;
+    std::uint32_t version;
+    std::uint32_t status;
+    std::uint32_t errorCode;
+    std::uint32_t frameCount;
+    std::uint32_t submittedTriangles;
+    std::uint32_t submittedVertices;
+    std::uint32_t clippedTriangles;
+    std::uint32_t frameIntervalNanosecondsLow;
+    std::uint32_t frameIntervalNanosecondsHigh;
+    std::uint32_t geometryNanosecondsLow;
+    std::uint32_t geometryNanosecondsHigh;
+    std::uint32_t submissionNanosecondsLow;
+    std::uint32_t submissionNanosecondsHigh;
+    std::uint32_t waitReadyNanosecondsLow;
+    std::uint32_t waitReadyNanosecondsHigh;
+    std::uint32_t availableVramBytes;
+    std::uint32_t parameterBufferHighWaterBytes;
+    std::uint32_t shutdownResult;
+    std::uint32_t reserved;
+};
+
+static_assert(sizeof(DreamcastDiagnosticSnapshot) == 80,
+              "diagnostic snapshot layout must remain stable");
+static_assert(offsetof(DreamcastDiagnosticSnapshot, frameIntervalNanosecondsLow) == 32,
+              "diagnostic snapshot timing offset changed");
+static_assert(offsetof(DreamcastDiagnosticSnapshot, availableVramBytes) == 64,
+              "diagnostic snapshot resource offset changed");
+
+enum DiagnosticStatus : std::uint32_t {
+    kDiagnosticBooting = 0,
+    kDiagnosticInitialized = 1,
+    kDiagnosticFrame = 2,
+    kDiagnosticError = 3,
+    kDiagnosticShutdown = 4,
+};
+
+enum DiagnosticErrorCode : std::uint32_t {
+    kDiagnosticErrorNone = 0,
+    kDiagnosticErrorVideoInitialization = 1,
+    kDiagnosticErrorRendererInitialization = 2,
+    kDiagnosticErrorGeometry = 3,
+    kDiagnosticErrorSubmission = 4,
+};
+
+extern "C" {
+extern volatile DreamcastDiagnosticSnapshot helengine_dreamcast_diagnostics;
+}
+
+namespace renderer_detail {
+
+constexpr std::uint32_t kDiagnosticMagic = 0x48454443u; // "HEDC"
+constexpr std::uint32_t kDiagnosticVersion = 1u;
+
+void resetDiagnosticSnapshot() noexcept;
+void setDiagnosticError(std::uint32_t errorCode) noexcept;
+void setDiagnosticFrameInterval(std::uint64_t nanoseconds) noexcept;
+void setDiagnosticGeometryTime(std::uint64_t nanoseconds) noexcept;
+void setDiagnosticShutdownResult(std::uint32_t result) noexcept;
 
 } // namespace renderer_detail
 
