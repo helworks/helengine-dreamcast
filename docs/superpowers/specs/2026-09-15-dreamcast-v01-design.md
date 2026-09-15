@@ -1,8 +1,8 @@
 # Dreamcast v0.1: native host and unlit cube — approved design and milestone plan
 
-**Status:** Approved for v0.1 implementation. No source implementation has started.
+**Status:** Approved for v0.1 implementation. Native, geometry, and reproducible build implementation is present on `feature/dreamcast-v01`; emulator and hardware acceptance remain tracked in `docs/Validation.md`.
 
-**Design history:** This document began as “Draft for discussion. No implementation started.” That was accurate while the scope and interfaces were under review. The review is now complete; the draft decisions below are approved for implementation through the companion plan. No source implementation, toolchain installation, dependency checkout, or emulator execution has been performed as part of this design approval.
+**Design history:** This document began as “Draft for discussion. No implementation started.” That was accurate while the scope and interfaces were under review. The review is now complete; the draft decisions below were approved for implementation through the companion plan. The approval-time note that no source implementation, toolchain installation, dependency checkout, or emulator execution had been performed describes that earlier review state, not the current worktree.
 
 **Goal:** Build a standalone Helengine Dreamcast executable that initializes video and reliably renders a rotating, unlit cube.
 
@@ -96,27 +96,27 @@ On failure, log the specific stage and stop safely. Track initialized subsystems
 
 ### 1. Reproducible toolchain and video bootstrap
 
-- [ ] Inspect the available host build environment and Flycast installation; select one supported route.
-- [ ] Resolve the candidate KOS revision, record compiler and ABI settings, and build the upstream hello and simple PVR examples. Use one consistent SH-4 floating-point ABI across KOS and the executable.
-- [ ] Add the native entry point, host/video ownership, build files, startup logs, and ignored external build output.
-- [ ] Produce a fresh SuperH little-endian ELF and map. Confirm its header with the cross-toolchain and retain build/source identifiers.
+- [x] Inspect the available host build environment and Flycast installation; select one supported route.
+- [x] Resolve the candidate KOS revision, record compiler and ABI settings, and build the upstream hello and simple PVR examples. Use one consistent SH-4 floating-point ABI across KOS and the executable.
+- [x] Add the native entry point, host/video ownership, build files, startup logs, and ignored external build output.
+- [x] Produce a fresh SuperH little-endian ELF and map. Confirm its header with the cross-toolchain and retain build/source identifiers.
 - [ ] Boot a stable clear-color screen, then a screen-space triangle, through the normal PVR scene lifecycle. These isolate display/submission from 3D math.
 
 **Checkpoint:** Clean build and repeated successful boots; missing tools or compilation failure never launch an older artifact.
 
 ### 2. Static unlit cube
 
-- [ ] Add immutable cube data and the testable geometry pipeline.
-- [ ] Test centered projection, positive reciprocal depth, nearer-versus-farther ordering, fully rejected geometry, all near-plane crossing cases, on-plane/degenerate cases, and scratch-capacity limits.
-- [ ] Render the fixed-pose cube with explicit colors, depth state, culling, and strip termination.
+- [x] Add immutable cube data and the testable geometry pipeline.
+- [x] Test centered projection, positive reciprocal depth, nearer-versus-farther ordering, fully rejected geometry, all near-plane crossing cases, on-plane/degenerate cases, and scratch-capacity limits.
+- [x] Render the fixed-pose cube with explicit colors, depth state, culling, and strip termination.
 - [ ] Inspect several fixed poses. Reverse triangle submission order and repeat with culling disabled to exercise occlusion independently of accidental draw order.
 
 **Checkpoint:** Correct visible faces, constant unlit colors, and stable occlusion; CPU geometry tests pass.
 
 ### 3. Rotation, clipping, and frame lifetime
 
-- [ ] Add elapsed-time two-axis rotation and a bounded pause delta.
-- [ ] Exercise near-plane crossings and screen edges with deterministic diagnostic poses; reject nonfinite output and preserve winding after clipping.
+- [x] Add elapsed-time two-axis rotation and a bounded pause delta.
+- [x] Exercise near-plane crossings and screen edges with deterministic diagnostic poses; reject nonfinite output and preserve winding after clipping.
 - [ ] Verify repeated presentation for ten minutes without hangs, flicker, exploding triangles, or growing application allocations.
 - [ ] Verify launch without a controller and optional Start exit; stop submission before draining/shutting down graphics.
 - [ ] Record frame intervals, geometry/submission CPU time, readiness wait, emitted/clipped vertices, available VRAM, and KOS parameter-buffer high-water use at a low logging frequency. Keep KOS timing units explicit.
@@ -125,7 +125,7 @@ On failure, log the specific stage and stop safely. Track initialized subsystems
 
 ### 4. Rebuild and acceptance record
 
-- [ ] Repeat a clean build and document exact launch commands, dependency revisions, compiler flags, ELF hash, and active display/emulator settings.
+- [x] Repeat a clean build and document exact launch commands, dependency revisions, compiler flags, ELF hash, and active display/emulator settings.
 - [ ] Record functional results from the emulator separately from physical-console results.
 - [ ] When a console and loader are available, test the same ELF, intended cable/display mode, repeated startup/shutdown, and sustained rotation. Report hardware acceptance as pending until exercised.
 - [ ] Record CPU/VRAM use and observed timing; do not turn the research documents' illustrative budgets into measured claims.
@@ -140,4 +140,4 @@ The next milestone should route one authored Helengine camera, cube mesh, transf
 
 ## Review state
 
-Standalone scope is confirmed. Native PVR, initial resolution, six face colors, rotation, clipping contract, module boundaries, and the provisional Linux/Docker host route are approved decisions. The earlier statement that this was “a milestone draft for review, not an approved code-level implementation plan” was accurate at draft time and is retained in the design history above; this document is now approved for the companion code-level implementation plan. No source changes, toolchain installation, dependency checkout, or emulator execution are part of this design approval.
+Standalone scope is confirmed. Native PVR, initial resolution, six face colors, rotation, clipping contract, module boundaries, and the provisional Linux/Docker host route are approved decisions. The earlier statement that this was “a milestone draft for review, not an approved code-level implementation plan” was accurate at draft time and is retained in the design history above; this document is now approved for the companion code-level implementation plan. The approval-time statement that no source changes, toolchain installation, dependency checkout, or emulator execution were part of design approval is historical; current implementation and acceptance status are tracked by the plan and `docs/Validation.md`.
