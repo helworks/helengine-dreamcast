@@ -1,0 +1,638 @@
+{
+  "project": {
+    "schemaVersion": 7,
+    "id": "flycast",
+    "name": "Flycast",
+    "description": "Read-only Flycast 2.7 emulator recognition project for the helengine-dc Dreamcast route."
+  },
+  "surfaces": [
+    {
+      "id": "surface-flycast-running-game",
+      "kind": "screen",
+      "parentId": null,
+      "name": "Running Game",
+      "description": "Flycast is rendering a game. The ImGui shell is hidden, so the whole client area is game content.",
+      "capabilities": [
+        "readOnly"
+      ],
+      "recognition": {
+        "clues": [
+          {
+            "id": "flycast-running-process",
+            "type": "process_name_any_of",
+            "weight": 1,
+            "params": {
+              "processNames": [
+                "flycast.exe"
+              ]
+            }
+          },
+          {
+            "id": "flycast-running-no-shell-text",
+            "type": "none_of_texts",
+            "weight": 1,
+            "params": {
+              "texts": [
+                "GAMES",
+                "Filter",
+                "Settings"
+              ]
+            }
+          }
+        ]
+      },
+      "viewports": [
+        {
+          "id": "game-content",
+          "edges": {
+            "top": {
+              "kind": "frame_start"
+            },
+            "bottom": {
+              "kind": "frame_end"
+            },
+            "left": {
+              "kind": "frame_start"
+            },
+            "right": {
+              "kind": "frame_end"
+            }
+          }
+        }
+      ],
+      "uiNodes": []
+    },
+    {
+      "id": "surface-flycast-main-menu",
+      "kind": "screen",
+      "parentId": null,
+      "name": "Main Menu",
+      "description": "Flycast's game list shell is visible.",
+      "capabilities": [
+        "readOnly"
+      ],
+      "recognition": {
+        "clues": [
+          {
+            "id": "flycast-main-menu-process",
+            "type": "process_name_any_of",
+            "weight": 1,
+            "params": {
+              "processNames": [
+                "flycast.exe"
+              ]
+            }
+          },
+          {
+            "id": "flycast-main-menu-signature",
+            "type": "at_least_texts",
+            "weight": 1,
+            "params": {
+              "texts": [
+                "GAMES",
+                "Filter",
+                "Settings",
+                "Your game list is empty",
+                "Add Game Folder"
+              ],
+              "minimumMatches": 2
+            }
+          }
+        ]
+      },
+      "uiNodes": []
+    }
+  ],
+  "stateTransitions": [],
+  "variables": [],
+  "layoutProfiles": [],
+  "inputCatalog": {
+    "controls": [
+      {
+        "family": "keyboard",
+        "id": "Up",
+        "label": "Up Arrow"
+      },
+      {
+        "family": "keyboard",
+        "id": "Down",
+        "label": "Down Arrow"
+      },
+      {
+        "family": "keyboard",
+        "id": "Left",
+        "label": "Left Arrow"
+      },
+      {
+        "family": "keyboard",
+        "id": "Right",
+        "label": "Right Arrow"
+      },
+      {
+        "family": "keyboard",
+        "id": "W",
+        "label": "W"
+      },
+      {
+        "family": "keyboard",
+        "id": "S",
+        "label": "S"
+      },
+      {
+        "family": "keyboard",
+        "id": "A",
+        "label": "A"
+      },
+      {
+        "family": "keyboard",
+        "id": "D",
+        "label": "D"
+      },
+      {
+        "family": "keyboard",
+        "id": "T",
+        "label": "T"
+      },
+      {
+        "family": "keyboard",
+        "id": "G",
+        "label": "G"
+      },
+      {
+        "family": "keyboard",
+        "id": "F",
+        "label": "F"
+      },
+      {
+        "family": "keyboard",
+        "id": "H",
+        "label": "H"
+      },
+      {
+        "family": "keyboard",
+        "id": "J",
+        "label": "J"
+      },
+      {
+        "family": "keyboard",
+        "id": "K",
+        "label": "K"
+      },
+      {
+        "family": "keyboard",
+        "id": "L",
+        "label": "L"
+      },
+      {
+        "family": "keyboard",
+        "id": "I",
+        "label": "I"
+      },
+      {
+        "family": "keyboard",
+        "id": "Q",
+        "label": "Q"
+      },
+      {
+        "family": "keyboard",
+        "id": "E",
+        "label": "E"
+      },
+      {
+        "family": "keyboard",
+        "id": "D1",
+        "label": "1"
+      },
+      {
+        "family": "keyboard",
+        "id": "D2",
+        "label": "2"
+      },
+      {
+        "family": "keyboard",
+        "id": "Z",
+        "label": "Z"
+      },
+      {
+        "family": "keyboard",
+        "id": "X",
+        "label": "X"
+      },
+      {
+        "family": "keyboard",
+        "id": "C",
+        "label": "C"
+      },
+      {
+        "family": "keyboard",
+        "id": "V",
+        "label": "V"
+      }
+    ],
+    "actions": [
+      {
+        "id": "dpad-up",
+        "name": "D-Pad Up",
+        "description": "Shared controller action for D-Pad Up.",
+        "bindings": [
+          {
+            "id": "shared-input-dpad-up",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "Up"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "dpad-down",
+        "name": "D-Pad Down",
+        "description": "Shared controller action for D-Pad Down.",
+        "bindings": [
+          {
+            "id": "shared-input-dpad-down",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "Down"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "dpad-left",
+        "name": "D-Pad Left",
+        "description": "Shared controller action for D-Pad Left.",
+        "bindings": [
+          {
+            "id": "shared-input-dpad-left",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "Left"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "dpad-right",
+        "name": "D-Pad Right",
+        "description": "Shared controller action for D-Pad Right.",
+        "bindings": [
+          {
+            "id": "shared-input-dpad-right",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "Right"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "left-stick-up",
+        "name": "Left Stick Up",
+        "description": "Shared controller action for Left Stick Up.",
+        "bindings": [
+          {
+            "id": "shared-input-left-stick-up",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "W"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "left-stick-down",
+        "name": "Left Stick Down",
+        "description": "Shared controller action for Left Stick Down.",
+        "bindings": [
+          {
+            "id": "shared-input-left-stick-down",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "S"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "left-stick-left",
+        "name": "Left Stick Left",
+        "description": "Shared controller action for Left Stick Left.",
+        "bindings": [
+          {
+            "id": "shared-input-left-stick-left",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "A"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "left-stick-right",
+        "name": "Left Stick Right",
+        "description": "Shared controller action for Left Stick Right.",
+        "bindings": [
+          {
+            "id": "shared-input-left-stick-right",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "D"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "right-stick-up",
+        "name": "Right Stick Up",
+        "description": "Shared controller action for Right Stick Up.",
+        "bindings": [
+          {
+            "id": "shared-input-right-stick-up",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "T"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "right-stick-down",
+        "name": "Right Stick Down",
+        "description": "Shared controller action for Right Stick Down.",
+        "bindings": [
+          {
+            "id": "shared-input-right-stick-down",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "G"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "right-stick-left",
+        "name": "Right Stick Left",
+        "description": "Shared controller action for Right Stick Left.",
+        "bindings": [
+          {
+            "id": "shared-input-right-stick-left",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "F"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "right-stick-right",
+        "name": "Right Stick Right",
+        "description": "Shared controller action for Right Stick Right.",
+        "bindings": [
+          {
+            "id": "shared-input-right-stick-right",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "H"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "face-a",
+        "name": "Face A",
+        "description": "Shared controller action for Face A.",
+        "bindings": [
+          {
+            "id": "shared-input-face-a",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "J"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "face-b",
+        "name": "Face B",
+        "description": "Shared controller action for Face B.",
+        "bindings": [
+          {
+            "id": "shared-input-face-b",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "K"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "face-x",
+        "name": "Face X",
+        "description": "Shared controller action for Face X.",
+        "bindings": [
+          {
+            "id": "shared-input-face-x",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "L"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "face-y",
+        "name": "Face Y",
+        "description": "Shared controller action for Face Y.",
+        "bindings": [
+          {
+            "id": "shared-input-face-y",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "I"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "left-trigger",
+        "name": "Left Trigger",
+        "description": "Shared controller action for Left Trigger.",
+        "bindings": [
+          {
+            "id": "shared-input-left-trigger",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "Q"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "right-trigger",
+        "name": "Right Trigger",
+        "description": "Shared controller action for Right Trigger.",
+        "bindings": [
+          {
+            "id": "shared-input-right-trigger",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "E"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "left-shoulder",
+        "name": "Left Shoulder",
+        "description": "Shared controller action for Left Shoulder.",
+        "bindings": [
+          {
+            "id": "shared-input-left-shoulder",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "D1"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "right-shoulder",
+        "name": "Right Shoulder",
+        "description": "Shared controller action for Right Shoulder.",
+        "bindings": [
+          {
+            "id": "shared-input-right-shoulder",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "D2"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "select",
+        "name": "Select",
+        "description": "Shared controller action for Select.",
+        "bindings": [
+          {
+            "id": "shared-input-select",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "Z"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "start",
+        "name": "Start",
+        "description": "Shared controller action for Start.",
+        "bindings": [
+          {
+            "id": "shared-input-start",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "X"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "left-stick-press",
+        "name": "Left Stick Press",
+        "description": "Shared controller action for Left Stick Press.",
+        "bindings": [
+          {
+            "id": "shared-input-left-stick-press",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "C"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "right-stick-press",
+        "name": "Right Stick Press",
+        "description": "Shared controller action for Right Stick Press.",
+        "bindings": [
+          {
+            "id": "shared-input-right-stick-press",
+            "parts": [
+              {
+                "family": "keyboard",
+                "controlId": "V"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "editor": {
+    "anyStatePosition": {
+      "x": -240,
+      "y": -60
+    },
+    "surfacePositions": [
+      {
+        "surfaceId": "surface-flycast-running-game",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "surfaceId": "surface-flycast-main-menu",
+        "x": 320,
+        "y": 0
+      }
+    ],
+    "actionRoutes": []
+  }
+}
