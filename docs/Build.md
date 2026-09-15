@@ -1,5 +1,7 @@
 # Dreamcast v0.1 build and launch
 
+This document covers the standalone Diagnostic cube (`scripts/build.ps1 -Mode Diagnostic`, the default). Building a normal Helengine project into an authored-scene ELF through the generic build graph is described in [AuthoredSceneBuild.md](AuthoredSceneBuild.md); both modes share the toolchain lock, SDK image and launcher below.
+
 The supported route uses Docker Engine with BuildKit and Linux-container support, PowerShell 7+, the pinned KallistiOS checkout, and Flycast 2.7. Docker Engine 29.6.1 was tested. The compiler comes from the pinned `pcercuei/dreamcast-toolchain` base image; the image is rebuilt locally from [docker/Dockerfile](../docker/Dockerfile) and recorded in [toolchain-lock.txt](../toolchain-lock.txt).
 
 The locked inputs are:

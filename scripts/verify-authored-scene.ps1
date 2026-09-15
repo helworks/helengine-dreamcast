@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$EvidenceRoot,
     [string]$DockerImage = 'helengine-dc-sdk:v01',
-    [int[]]$CaptureFrames = @(120, 180),
+    # Comma-separated loop frames to capture; a string so `pwsh -File` callers can pass it.
+    [string]$CaptureFrames = '120,180',
     [ValidateRange(1, 100000)]
     [int]$StartAfterFrames = 240,
     [ValidateRange(60, 200000)]
@@ -27,6 +28,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+[int[]]$captureFrameList = @($CaptureFrames -split '[,; ]+' | Where-Object { $_ -ne '' } | ForEach-Object { [int]$_ })
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 $EvidenceRoot = [IO.Path]::GetFullPath($EvidenceRoot)
 $FlycastPath = [IO.Path]::GetFullPath($FlycastPath)
@@ -122,7 +124,7 @@ foreach ($required in @('helengine_dreamcast_runtime_probe', 'helengine_dreamcas
 $nmOutput | Set-Content -LiteralPath (Join-Path $EvidenceRoot 'nm-symbols.txt') -Encoding UTF8
 
 # --- Lua probe -----------------------------------------------------------------
-$captureTable = ($CaptureFrames | ForEach-Object { "[$_] = true" }) -join ', '
+$captureTable = ($captureFrameList | ForEach-Object { "[$_] = true" }) -join ', '
 $luaTemplate = @'
 local root = "@@ROOT@@"
 local out = io.open(root .. "verify-probe.csv", "wb")
@@ -399,7 +401,7 @@ $report | ForEach-Object { Write-Output $_ }
 if ($resultKind -ne $expectedKind) {
     throw "Verification failed: expected '$expectedKind' but the probe ended with '$resultKind'."
 }
-if ($CaptureFrames.Count -gt 0 -and $frameReports.Count -ne $CaptureFrames.Count) {
-    throw "Verification failed: expected $($CaptureFrames.Count) framebuffer captures but recorded $($frameReports.Count)."
+if ($captureFrameList.Count -gt 0 -and $frameReports.Count -ne $captureFrameList.Count) {
+    throw "Verification failed: expected $($captureFrameList.Count) framebuffer captures but recorded $($frameReports.Count)."
 }
 Write-Output "verify-authored-scene: PASS ($buildId)"

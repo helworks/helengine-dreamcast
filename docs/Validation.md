@@ -63,3 +63,31 @@ Start-Process -FilePath $profileExe -WorkingDirectory $profile -ArgumentList $fl
 The Lua probe reads framebuffer memory at `0x05000000 + FB_W_SOF1`; the P2 alias `0xA5000000 + FB_W_SOF1` produces the same hash. The old `0x04000000` aperture is not valid evidence for DX11 writeback. The diagnostic snapshot stores nanoseconds: typical healthy samples were interval about 16.68 ms, geometry about 572,000 ns, submission about 177,600 ns, and wait about 15.7 ms. Integer millisecond fields that display zero for geometry/submission are truncation, not zero work.
 
 Flycast's Dreamcast `TA_ITP_CURRENT` stayed at `0x00400000`, the initialized `TA_ISP_BASE`, and `diag_param_high=0` throughout. This emulator counter does not expose parameter-buffer consumption for the Dreamcast TA path, so it must not be reported as zero consumption. `diag_vram=6,937,344` is stable allocator evidence. Physical-console acceptance remains pending until the same ELF is exercised through an authorized loader and display path.
+
+# Dreamcast v0.2 authored scene evidence
+
+The v0.2 rows below were produced on 2026-09-15 from the `feature/dreamcast-v02` worktree with the pinned SDK `sha256:a33ea383336b428d8ac9bc507e00fd066092d4b0c8fcea29adccd61b2025f067`, KOS `fcfa7d869471591ca1c777543261a7bfea7cb726`, Flycast 2.7 (`f41c1a4243274caf9a183114bd610407835521a011a48b18326e5e957e6f4e6b`), isolated engine `v02/helengine-source` (`5a0696ca`) and isolated generator `v02/csharpcodegen-source` (`c1d476f`). All artifacts live under `C:\dev\helworks\builds\helengine-dc\v02`. Hidden runs use the Lua probes recorded beside each artifact; the only visible run is the user launch row. Physical hardware remains untested.
+
+## Build identities
+
+| Ref | Build | Source commit | ELF SHA-256 | Notes |
+|---|---|---|---|---|
+| V4a | `execution/task4-authored-01` (direct `build.ps1 -Mode Authored`) | `62fd903` + uncommitted Task 4 (`f225880` content) | `6ae09f285c4a08489148210710b40b624b148bf7b67478b18fc7e53d05edbc93` | Normal game, no RuntimeInitProbe, staged inputs from `root-graph-task4-v1` |
+| V4b | `root-graph-task4-v2/build/authored-a11df066839b4e738fd37ea5105cb4eb` (full generic graph) | `f225880`, clean | same as V4a | Byte-identical to V4a; proves pipeline reproducibility |
+| V5 | `execution/task5-authored-01` (direct, Task 5 native) | `f225880` + Task 5 (`73deb6e` content) | `c4577de13d7fff6d862c92e1f6428e7b80e59813030fa6178e04aba0f65f7633` | Authored rendering, resident span 2,060,984 bytes |
+| D5 | `execution/task5-diagnostic-01` (Diagnostic, StaticPose) | same tree as V5 | `49aafabf01baf46994646345460099aa9467c1f67d63ea6246ce74cc96b356f4` | Diagnostic regression after shared renderer changes |
+
+## Evidence matrix
+
+| Evidence row | Route | Identity | Observed result | Artifact path |
+|---|---|---|---|---|
+| Builder tests | `dotnet test builder.tests` against isolated engine | commit `e19363b` | 29/29 passed (definition, cooker, stager, catalog writer, failure paths, cooked-content validator). | `execution/task6-builder-tests/task6-builder-tests.trx` |
+| Build-input script tests | `scripts/tests/authored-build-input.tests.ps1` | `f225880` | PASS: missing roots, missing Core.hpp, missing catalog ABI (probe and non-probe), compiler failure, wrong image; no success manifests. | `execution/task4-build-input-tests.log` |
+| Native host tests | pinned SDK `make host-test` | `73deb6e` | Geometry, transform, mesh, raster seam, content path and authored submission suites all passed; submission suite also clean under ASan/UBSan. | `execution/task5-host-check-01/submission-asan.log` |
+| Normal boot, hidden probe | Flycast Lua, runtime probe symbol `0x8c1f0ed4` | V4a | Core-ready and scene-ready at vblank 35; frame counter 1/60/120/180; checked free heap 14,545,264 B at Core-ready, 14,540,760 B running; Start injected at frame 180; terminal status 5/stage 6, all four flags 1, shutdown free 14,544,392 B at vblank 262. | `execution/task4-boot-01/authored-boot-probe.csv` |
+| Full generic graph | `prepare-authored-fixture.ps1 -Build` | V4b | Generation, cooking, staging, catalog, native executor and manifest completed with exit code 0; `GitDirty=false`. | `execution/task4-graph-v2-console.log` |
+| Visible user launch | `launch_in_emulator.ps1 -Visible` | V4b | Process owner `DESKTOP-HELENA\Helena`, main window handle 1379886, title `Flycast - helengine_dc`. | `execution/task4-visible-launch.log` |
+| Authored rendering, hidden probe | Flycast Lua with `rend.EmulateFramebuffer=yes`, symbols `0x8c202674`/`0x8c2026c4`/`0x8c200328` | V5 | cameras=1, drawables=1, 12 triangles per frame, presented frames equal loop frames (240), clear ARGB `ff080d14`; framebuffer at loop frames 120 and 180 identical (SHA-256 `774e28d5d7fe4933f035fbc9823ac061c1b8028ae8d238f9070643bf5e409e67`), center pixel `0xd104` = (208,32,32) authored red, corner `0x0862` = authored clear; Start at frame 240 then runtime status 5/stage 6 and authored stage 9/error 0 at vblank 294. | `execution/task5-render-01/authored-render-probe.csv`, `authored-render-probe-frame-0120.png` |
+| Diagnostic regression | Flycast Lua, diagnostics symbol `0x8c075e84` | D5 | Status 2, error 0, 12 triangles, frame advancing; captured frame SHA-256 `2c13dc96efabe106aae6beac98426f32eea4d8637e18360a8f7efccbde2ae804`, byte-identical to the v0.1 static-pose reference above. | `execution/task5-diagnostic-probe-01/diagnostic-probe.csv` |
+| Verifier self-check | `scripts/verify-authored-scene.ps1` | V5 | PASS; frame hashes identical to the manual render probe. | `execution/task6-verify-task5-01/verify-report.txt` |
+| Missing-controller operation | verifier `-NoController` (all four maple ports absent) | V5 | Scene ready, frames advanced to 600 with 12 triangles each and checked free heap 14,429,864 B; no shutdown or reset. | `execution/task6-nocontroller-01/verify-report.txt` |
