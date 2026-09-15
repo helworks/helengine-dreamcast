@@ -7,15 +7,16 @@ source is edited in the Dreamcast worktree.
 ## Generated graph identity
 
 The graph reached the expected native-not-ready boundary in
-`v02/root-graph-generator-v3`. Its authoritative root was:
+`v02/root-graph-generator-v4`. Its authoritative root was:
 
-`C:/dev/helworks/builds/helengine-dc/v02/root-graph-generator-v3/cache/v2/c829f5140cb3c2dd14e34a15a209d15a/b/dc/debug/release/generated-core`
+`C:/dev/helworks/builds/helengine-dc/v02/root-graph-generator-v4/cache/v2/c829f5140cb3c2dd14e34a15a209d15a/b/dc/debug/release/generated-core`
 
-The graph log is `v02/execution/root-graph-generator-v3-console.log`. The
+The graph log is `v02/execution/root-graph-generator-v4-console.log`. The
 isolated Helengine source used for graph fixes ended at `5a0696ca`; the
-isolated generator source is at `e35366b` for the generic file descriptor
-capability fix, after the earlier Math, Split and FileStream compatibility
-fixes. The pinned Release payload hashes are recorded in
+isolated generator source includes `e35366b` for the generic file descriptor
+capability fix and `c1d476f` for the pre-open capability guard, after the
+earlier Math, Split and FileStream compatibility fixes. The pinned Release
+payload hashes are recorded in
 `v02/execution/codegen-release-payload-sha256.txt`.
 
 Selected generated input hashes from the graph root are:
@@ -168,23 +169,23 @@ checkedFreeHeap = untouchedHeap + max(mallinfo().fordblks, 0)
 ```
 
 This separates untouched heap from allocator arena, allocated and free
-components and avoids counting ROMFS or the ELF twice. The bounded Gate A
-probe output is `v02/execution/root-probe14/runtime-probe.csv` (verified by the
-root task) and reports at vblank 41:
+components and avoids counting ROMFS or the ELF twice. The final Gate A probe
+output is `v02/execution/root-probe-v4/runtime-probe.csv` (verified by the root
+task) and reports at vblank 41:
 
 ```text
 magic=48455250 version=1 status=5 error=0 stage=6
-startFree=14615408 coreReadyFree=14608976
-coreDisposedFree=14608904 shutdownFree=14609688
+startFree=14615184 coreReadyFree=14608776
+coreDisposedFree=14608704 shutdownFree=14609488
 coreReady=1 frameComplete=1 coreDisposed=1 cleanShutdown=1
 ```
 
-The linked A14 ELF is
-`v02/execution/task2-gate-a-14/helengine_dc.elf`, SHA-256
-`957f7a2b2fdd0c2cf3b9d994ea3e315f1ec6a39fd7a976d752b397e4583b06f6`. Its
-resolved probe symbol is `_helengine_dreamcast_runtime_probe` at `0x8c1e1874`.
-The inspected ELF loadable resident span including BSS is 1,926,028 bytes
-(1.836803 MiB), below the eight MiB gate. SDK image
+The linked final Gate A ELF is
+`v02/execution/root-gate-a-v4/helengine_dc.elf`, SHA-256
+`339378133d3e2fe75f462239596c7d25d97305b87f16930316ea20611a6101d6`. Its
+resolved probe symbol is `_helengine_dreamcast_runtime_probe` at `0x8c1e1954`.
+The inspected ELF loadable resident span including BSS is 1,926,476 bytes
+(1.837231 MiB), below the eight MiB gate. SDK image
 `sha256:a33ea383336b428d8ac9bc507e00fd066092d4b0c8fcea29adccd61b2025f067`
 and KOS commit `fcfa7d869471591ca1c777543261a7bfea7cb726` were unchanged.
 
