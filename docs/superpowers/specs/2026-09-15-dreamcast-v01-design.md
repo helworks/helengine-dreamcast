@@ -1,6 +1,8 @@
-# Dreamcast v0.1: native host and unlit cube — draft design and milestone plan
+# Dreamcast v0.1: native host and unlit cube — approved design and milestone plan
 
-**Status:** Draft for discussion. No implementation started.
+**Status:** Approved for v0.1 implementation. No source implementation has started.
+
+**Design history:** This document began as “Draft for discussion. No implementation started.” That was accurate while the scope and interfaces were under review. The review is now complete; the draft decisions below are approved for implementation through the companion plan. No source implementation, toolchain installation, dependency checkout, or emulator execution has been performed as part of this design approval.
 
 **Goal:** Build a standalone Helengine Dreamcast executable that initializes video and reliably renders a rotating, unlit cube.
 
@@ -138,4 +140,4 @@ The next milestone should route one authored Helengine camera, cube mesh, transf
 
 ## Review state
 
-Standalone scope is confirmed. Native PVR, initial resolution, six face colors, rotation, clipping contract, module boundaries, and host environment selection are proposed decisions. This is a milestone draft for review, not an approved code-level implementation plan. No source changes, toolchain installation, dependency checkout, or emulator execution are part of this planning work.
+Standalone scope is confirmed. Native PVR, initial resolution, six face colors, rotation, clipping contract, module boundaries, and the provisional Linux/Docker host route are approved decisions. The earlier statement that this was “a milestone draft for review, not an approved code-level implementation plan” was accurate at draft time and is retained in the design history above; this document is now approved for the companion code-level implementation plan. No source changes, toolchain installation, dependency checkout, or emulator execution are part of this design approval.
