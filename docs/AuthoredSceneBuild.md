@@ -37,9 +37,14 @@ records the evidence rows.
   or a non-finite or near-zero-length directional light direction/color,
   fails with status `invalid-light` (`AuthoredFrameStatus::InvalidLight`)
   rather than silently producing black.
-- Camera: authored rigid world transform, near/far planes and clear RGB, full
-  viewport, back buffer only, color and depth clear enabled, no stencil. The
-  vertical field of view is fixed at 45 degrees with a 640/480 aspect ratio.
+- Camera: authored rigid world transform, near/far planes, vertical field of
+  view and clear RGB, full viewport, back buffer only, color and depth clear
+  enabled, no stencil. The aspect ratio is 640/480. The field of view is read
+  from `ICamera.FieldOfView`, so a scene frames the same way here as on every
+  other platform; a camera that never authored one carries the engine default
+  of 45 degrees. A value outside the engine's `CameraProjectionUtils` clamp
+  range, or a non-finite one, fails the frame with status `invalid-camera`
+  (`AuthoredFrameStatus::InvalidCamera`) before any packet is emitted.
 - Model transforms must be finite affine with a positive determinant. Nonuniform
   scale is fine; mirrored or singular transforms are rejected per frame.
 - Budgets: one MiB of embedded cooked content, eight MiB resident ELF span

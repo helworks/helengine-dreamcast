@@ -206,6 +206,14 @@ with orthonormal columns. It inverts the rigid camera and reflects only the
 camera-space Z row because generated camera forward is `-Z` while the native
 geometry stage consumes positive depth.
 
+The projection is built from the camera rather than from a platform constant.
+The bridge reads `ICamera::get_FieldOfView` alongside the clip planes and
+passes the vertical field of view through to the geometry stage, so the same
+authored scene frames identically on Dreamcast and on every other platform.
+This getter was added to the shared engine after the v0.2 cores were emitted,
+so a generated Core predating it will not compile against this bridge and must
+be regenerated.
+
 That Z reflection reverses screen winding. Diagnostic geometry retains its
 positive screen-space counterclockwise cull contract; authored submission can
 select clockwise front faces through `RendererConfig::frontFaceWinding`. The
