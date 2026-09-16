@@ -13,25 +13,45 @@ public sealed class DreamcastContentStagerTests {
         using TemporaryDirectory temporary = new();
         string sourceRoot = Path.Combine(temporary.Path, "package-source");
         string destinationRoot = Path.Combine(temporary.Path, "stage");
-        Directory.CreateDirectory(Path.Combine(sourceRoot, "cooked", "scenes"));
-        byte[] content = Encoding.UTF8.GetBytes("startup-scene");
-        File.WriteAllBytes(Path.Combine(sourceRoot, "cooked", "scenes", "startup.hasset"), content);
+        PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(sourceRoot);
         File.WriteAllText(Path.Combine(sourceRoot, "ambient.hasset"), "must not be copied");
-
-        PlatformBuildArtifact artifact = new(
-            "cooked/scenes/startup.hasset",
-            "scene/startup",
-            "sha256:" + Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant(),
-            "scene",
-            "baseline");
-        PlatformBuildManifest manifest = CreateManifest(artifact);
+        byte[] content = File.ReadAllBytes(Path.Combine(sourceRoot, "cooked", "scenes", "startup.hasset"));
+        PlatformBuildManifest manifest = CreateManifest(artifacts[0], artifacts[1..]);
 
         IReadOnlyList<string> paths = new DreamcastContentStager().Stage(manifest, sourceRoot, destinationRoot, CancellationToken.None);
 
-        Assert.Equal(new[] { "cooked/scenes/startup.hasset" }, paths);
+        Assert.Equal(new[] { "cooked/imported/models/cube.hasset", "cooked/materials/cube.helmat", "cooked/scenes/startup.hasset" }, paths);
         Assert.Equal(content, File.ReadAllBytes(Path.Combine(destinationRoot, "cooked", "scenes", "startup.hasset")));
         Assert.False(File.Exists(Path.Combine(destinationRoot, "ambient.hasset")));
         Assert.Equal(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), File.GetLastWriteTimeUtc(destinationRoot));
+    }
+
+    /// <summary>Declared artifacts the runtime cannot load are verified to exist but left out of the ROMFS and its budget.</summary>
+    [Fact]
+    public void StageSkipsDeclaredArtifactsTheRuntimeCannotLoad() {
+        using TemporaryDirectory temporary = new();
+        string sourceRoot = Path.Combine(temporary.Path, "package-source");
+        string destinationRoot = Path.Combine(temporary.Path, "stage");
+        PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(sourceRoot);
+        byte[] texture = new byte[2 * 1024 * 1024];
+        new Random(7).NextBytes(texture);
+        Directory.CreateDirectory(Path.Combine(sourceRoot, "cooked", "imported"));
+        File.WriteAllBytes(Path.Combine(sourceRoot, "cooked", "imported", "dpad.hasset"), texture);
+        PlatformBuildArtifact textureArtifact = new(
+            "cooked/imported/dpad.hasset",
+            "texture/dpad",
+            "sha256:" + Convert.ToHexString(SHA256.HashData(texture)).ToLowerInvariant(),
+            "texture",
+            "baseline");
+        PlatformBuildManifest manifest = CreateManifest(artifacts[0], [.. artifacts[1..], textureArtifact]);
+        DreamcastContentStager stager = new();
+
+        IReadOnlyList<string> paths = stager.Stage(manifest, sourceRoot, destinationRoot, CancellationToken.None);
+
+        Assert.DoesNotContain("cooked/imported/dpad.hasset", paths);
+        Assert.Equal(new[] { "cooked/imported/dpad.hasset" }, stager.LastSkippedRelativePaths);
+        Assert.False(File.Exists(Path.Combine(destinationRoot, "cooked", "imported", "dpad.hasset")));
+        Assert.Equal(3, paths.Count);
     }
 
     /// <summary>Rejects a declaration that cannot be associated with one exact cooked file.</summary>

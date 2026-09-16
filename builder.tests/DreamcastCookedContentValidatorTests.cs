@@ -26,6 +26,26 @@ public sealed class DreamcastCookedContentValidatorTests {
         Assert.Contains("found 2", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>An engine component without a Dreamcast adapter that survives platform pruning is rejected by name.</summary>
+    [Fact]
+    public void RejectsUnsupportedEngineComponent() {
+        using TemporaryDirectory temporary = new();
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.SpriteComponent")])]);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("helengine.SpriteComponent", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Project code components run inside generated Core and are accepted.</summary>
+    [Fact]
+    public void AcceptsProjectCodeComponent() {
+        using TemporaryDirectory temporary = new();
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("city.rendering.CubeTestSpinComponent, gameplay")])]);
+
+        Validate(temporary.Path);
+    }
+
     /// <summary>A camera on a disabled entity does not count, so the scene has no usable camera.</summary>
     [Fact]
     public void RejectsDisabledCameraEntity() {
@@ -35,6 +55,33 @@ public sealed class DreamcastCookedContentValidatorTests {
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
 
         Assert.Contains("found 0", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A model with no explicit submeshes (the engine's built-in cube form) is accepted as one implicit submesh.</summary>
+    [Fact]
+    public void AcceptsImplicitSingleSubmesh() {
+        using TemporaryDirectory temporary = new();
+        ModelAsset model = DreamcastCookedTestContent.CreateModel(8, 12);
+        model.Submeshes = Array.Empty<ModelSubmeshAsset>();
+        Stage(temporary.Path, model: model);
+
+        Validate(temporary.Path);
+    }
+
+    /// <summary>Two explicit submeshes are rejected.</summary>
+    [Fact]
+    public void RejectsTwoSubmeshes() {
+        using TemporaryDirectory temporary = new();
+        ModelAsset model = DreamcastCookedTestContent.CreateModel(8, 12);
+        model.Submeshes = [
+            new ModelSubmeshAsset { MaterialSlotName = "A", IndexStart = 0, IndexCount = 18 },
+            new ModelSubmeshAsset { MaterialSlotName = "B", IndexStart = 18, IndexCount = 18 }
+        ];
+        Stage(temporary.Path, model: model);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("at most one submesh", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Position and triangle limits are enforced against the cooked model.</summary>

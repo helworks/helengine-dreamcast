@@ -1,9 +1,16 @@
 using System.Security.Cryptography;
 using helengine.baseplatform.Manifest;
+using helengine.files;
 
 namespace helengine.dreamcast.builder;
 
-/// <summary>Copies only manifest-declared cooked artifacts into a deterministic ROMFS staging tree.</summary>
+/// <summary>Copies only manifest-declared, runtime-loadable cooked artifacts into a deterministic ROMFS staging tree.</summary>
+/// <remarks>
+/// The Dreamcast v0.2 runtime can load scenes, models and platform materials only. Declared artifacts of any
+/// other serialized type (textures, fonts, audio, imported blobs) are still required to exist but are not
+/// staged, because the runtime could never open them and the ROMFS is resident in console RAM. The omitted
+/// paths are exposed through <see cref="LastSkippedRelativePaths"/> for diagnostics.
+/// </remarks>
 public sealed class DreamcastContentStager {
     const long MaximumPayloadBytes = 1024 * 1024;
     static readonly DateTime BuildEpochUtc = new(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -18,6 +25,9 @@ public sealed class DreamcastContentStager {
     public DreamcastContentStager(DreamcastSceneCompatibilityValidator validator) {
         Validator = validator ?? throw new ArgumentNullException(nameof(validator));
     }
+
+    /// <summary>Gets the declared artifacts the last <see cref="Stage"/> call left out because the runtime cannot load their type.</summary>
+    public IReadOnlyList<string> LastSkippedRelativePaths { get; private set; } = [];
 
     /// <summary>Stages declared cooked files in stable order and returns their normalized paths.</summary>
     public IReadOnlyList<string> Stage(
@@ -53,6 +63,7 @@ public sealed class DreamcastContentStager {
 
         long totalBytes = 0;
         List<string> stagedPaths = [];
+        List<string> skippedPaths = [];
         foreach (PlatformBuildArtifact artifact in manifest.CookedArtifacts
                      .OrderBy(value => DreamcastSceneCompatibilityValidator.NormalizeRelativePath(value.RelativePath), StringComparer.Ordinal)) {
             cancellationToken.ThrowIfCancellationRequested();
@@ -62,6 +73,11 @@ public sealed class DreamcastContentStager {
             RejectReparsePoints(sourceRoot, relativePath);
             if (!File.Exists(sourcePath)) {
                 throw new FileNotFoundException($"Declared cooked artifact is missing: {relativePath}", sourcePath);
+            }
+
+            if (!IsRuntimeLoadable(sourcePath)) {
+                skippedPaths.Add(relativePath);
+                continue;
             }
 
             FileInfo sourceInfo = new(sourcePath);
@@ -87,7 +103,22 @@ public sealed class DreamcastContentStager {
             Directory.SetLastWriteTimeUtc(directory, BuildEpochUtc);
         }
 
+        LastSkippedRelativePaths = skippedPaths;
         return stagedPaths;
+    }
+
+    /// <summary>Returns true when the cooked file deserializes as a scene, model or platform material.</summary>
+    static bool IsRuntimeLoadable(string sourcePath) {
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        if (bytes.Length < 4 || bytes[0] != (byte)'H' || bytes[1] != (byte)'E' || bytes[2] != (byte)'L' || bytes[3] != (byte)'E') {
+            return false;
+        }
+        try {
+            Asset asset = AssetSerializer.DeserializeFromBytes(bytes);
+            return asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset;
+        } catch (Exception exception) when (exception is not OutOfMemoryException) {
+            return false;
+        }
     }
 
     static string ResolveUnderRoot(string root, string relativePath) {

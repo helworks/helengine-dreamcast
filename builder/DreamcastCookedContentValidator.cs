@@ -79,6 +79,10 @@ public sealed class DreamcastCookedContentValidator {
                     cameraCount++;
                 } else if (string.Equals(component.ComponentTypeId, MeshTypeId, StringComparison.Ordinal)) {
                     meshCount++;
+                } else if (component.ComponentTypeId != null && component.ComponentTypeId.StartsWith("helengine.", StringComparison.Ordinal)) {
+                    // Engine 2D, light, audio, animation and physics components have no Dreamcast v0.2
+                    // adapter; project code components run inside generated Core and are allowed.
+                    throw new InvalidOperationException($"Dreamcast v0.2 supports only camera and mesh engine components in the startup scene; entity '{entity.Name}' carries '{component.ComponentTypeId}'.");
                 }
             }
         }
@@ -124,12 +128,17 @@ public sealed class DreamcastCookedContentValidator {
                 throw new InvalidOperationException($"Model '{path}' index {index} references position {value} outside the {positionCount} positions.");
             }
         }
-        if (model.Submeshes == null || model.Submeshes.Length != 1 || model.Submeshes[0] == null) {
-            throw new InvalidOperationException($"Model '{path}' must contain exactly one submesh.");
-        }
-        ModelSubmeshAsset submesh = model.Submeshes[0];
-        if (submesh.IndexStart != 0 || submesh.IndexCount != indexCount || string.IsNullOrWhiteSpace(submesh.MaterialSlotName)) {
-            throw new InvalidOperationException($"Model '{path}' submesh must cover the complete index buffer with a named material slot.");
+        // The engine resolves a model without explicit submeshes as one implicit submesh that
+        // covers every index (ModelSubmeshResolver); the engine's built-in cube is authored that
+        // way. Dreamcast accepts that form or exactly one explicit covering submesh.
+        if (model.Submeshes != null && model.Submeshes.Length != 0) {
+            if (model.Submeshes.Length != 1 || model.Submeshes[0] == null) {
+                throw new InvalidOperationException($"Model '{path}' must contain at most one submesh; found {model.Submeshes.Length}.");
+            }
+            ModelSubmeshAsset submesh = model.Submeshes[0];
+            if (submesh.IndexStart != 0 || submesh.IndexCount != indexCount) {
+                throw new InvalidOperationException($"Model '{path}' submesh must cover the complete index buffer.");
+            }
         }
         foreach (float3 position in model.Positions) {
             if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z)) {

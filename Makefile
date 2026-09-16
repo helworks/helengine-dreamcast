@@ -61,8 +61,17 @@ CPPFLAGS += -DHELENGINE_DREAMCAST_HAS_GENERATED_CORE \
 GENERATED_OBJECT := $(OBJ_ROOT)/generated/generated_unity.o
 OBJECTS += $(GENERATED_OBJECT)
 DEPS += $(GENERATED_OBJECT:.o=.d)
+# The finalized closed-program unity (helengine_core_unity.cpp) includes every
+# generated unit in dependency order, including the late deserializer and
+# project code-module units whose standalone headers omit forward declarations.
+# Prefer it when the graph emitted it; fall back to the pre-finalization list.
+GENERATED_FINALIZED_UNITY := $(GENERATED_CORE_ROOT)/helengine_core_unity.cpp
+ifneq ($(wildcard $(GENERATED_FINALIZED_UNITY)),)
+GENERATED_UNITY_SOURCE := $(GENERATED_FINALIZED_UNITY)
+else
 GENERATED_UNITY_SOURCE := $(GENERATED_CORE_ROOT)/generated_unity.cpp
-GENERATED_CPP_SOURCES := $(shell find "$(GENERATED_CORE_ROOT)" -type f -name '*.cpp' ! -name 'helengine_core_unity.cpp' | sort)
+endif
+GENERATED_CPP_SOURCES := $(shell find "$(GENERATED_CORE_ROOT)" -type f -name '*.cpp' ! -name 'helengine_core_unity.cpp' ! -name 'generated_unity.cpp' | sort)
 GENERATED_UNITY_INCLUDES := $(shell tr -d '\r' < "$(GENERATED_UNITY_SOURCE)" | sed -n 's/^#include "\(.*\.cpp\)".*/\1/p')
 GENERATED_EXTRA_SOURCES := $(filter-out $(GENERATED_UNITY_SOURCE) $(addprefix $(GENERATED_CORE_ROOT)/,$(GENERATED_UNITY_INCLUDES)),$(GENERATED_CPP_SOURCES))
 GENERATED_EXTRA_OBJECTS := $(patsubst $(GENERATED_CORE_ROOT)/%.cpp,$(OBJ_ROOT)/generated-extra/%.o,$(GENERATED_EXTRA_SOURCES))
@@ -133,7 +142,7 @@ $(OBJ_ROOT)/%.o: src/%.cpp
 	kos-c++ $(CXXFLAGS) $(CPPFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c $< -o $@
 
 ifeq ($(MODE),Authored)
-$(GENERATED_OBJECT): $(GENERATED_CORE_ROOT)/generated_unity.cpp
+$(GENERATED_OBJECT): $(GENERATED_UNITY_SOURCE)
 	@mkdir -p "$(dir $@)"
 	kos-c++ $(CXXFLAGS) $(GENERATED_WARNING_FLAGS) $(CPPFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
 

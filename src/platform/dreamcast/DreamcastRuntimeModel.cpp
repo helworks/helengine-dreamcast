@@ -54,14 +54,16 @@ void validateAsset(const ::ModelAsset& asset, std::uint32_t indexCount) {
         asset.Positions->get_Length() > kMaxVertices) {
         throw std::invalid_argument("Dreamcast model positions must contain 1..64 values.");
     }
-    if (asset.Submeshes == nullptr || asset.Submeshes->get_Length() != 1 ||
-        (*asset.Submeshes)[0] == nullptr) {
-        throw std::invalid_argument("Dreamcast model requires one nonempty submesh.");
-    }
-    const ::ModelSubmeshAsset& submesh = *(*asset.Submeshes)[0];
-    if (submesh.MaterialSlotName.empty() || submesh.IndexStart != 0 ||
-        submesh.IndexCount != static_cast<int32_t>(indexCount)) {
-        throw std::invalid_argument("Dreamcast model submesh must cover the complete index buffer.");
+    // A model without explicit submeshes is one implicit submesh covering every index,
+    // matching the engine's ModelSubmeshResolver; otherwise exactly one covering submesh.
+    if (asset.Submeshes != nullptr && asset.Submeshes->get_Length() != 0) {
+        if (asset.Submeshes->get_Length() != 1 || (*asset.Submeshes)[0] == nullptr) {
+            throw std::invalid_argument("Dreamcast model supports at most one submesh.");
+        }
+        const ::ModelSubmeshAsset& submesh = *(*asset.Submeshes)[0];
+        if (submesh.IndexStart != 0 || submesh.IndexCount != static_cast<int32_t>(indexCount)) {
+            throw std::invalid_argument("Dreamcast model submesh must cover the complete index buffer.");
+        }
     }
     if (!finite(asset.BoundsMin.X) || !finite(asset.BoundsMin.Y) ||
         !finite(asset.BoundsMin.Z) || !finite(asset.BoundsMax.X) ||
@@ -168,7 +170,10 @@ DreamcastRuntimeModel* DreamcastRuntimeModel::CreateOwned(::ModelAsset* asset) {
         auto submeshes = std::unique_ptr<::Array<::RuntimeSubmesh*>>(
             new ::Array<::RuntimeSubmesh*>(1));
         auto submesh = std::unique_ptr<::RuntimeSubmesh>(new ::RuntimeSubmesh());
-        submesh->set_MaterialSlotName((*assetLease.value->Submeshes)[0]->MaterialSlotName);
+        const bool hasExplicitSubmesh =
+            assetLease.value->Submeshes != nullptr && assetLease.value->Submeshes->get_Length() == 1;
+        submesh->set_MaterialSlotName(
+            hasExplicitSubmesh ? (*assetLease.value->Submeshes)[0]->MaterialSlotName : std::string());
         submesh->set_IndexStart(0);
         submesh->set_IndexCount(static_cast<int32_t>(indexCount));
         submesh->set_PrimitiveTopology(::ModelPrimitiveTopology::TriangleList);
