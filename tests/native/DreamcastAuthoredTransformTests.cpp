@@ -212,6 +212,31 @@ void NormalMatrixRejectsInvalidModelTransforms() {
     EXPECT(!makeNormalMatrix(mirrored, normalMatrix));
 }
 
+void NormalMatrixDistinguishesCofactorFromItsTranspose() {
+    using helengine::dreamcast::makeNormalMatrix;
+    // Shear: the model plane whose normal is +Z has tangents (1,0,0) and (0,1,0);
+    // after the shear the second tangent becomes (0,1,1), so the world normal must
+    // tilt to (0,-1,1). The cofactor matrix produces that; its transpose leaves
+    // (0,0,1) unchanged, so this case fails if the matrix is ever transposed.
+    Matrix4x4 worldFromModel = identity();
+    worldFromModel.m[2][1] = 1.0f;
+    Matrix4x4 normalMatrix{};
+    EXPECT(makeNormalMatrix(worldFromModel, normalMatrix));
+
+    Vec3 worldNormal = helengine::dreamcast::transformDirection(normalMatrix, Vec3{0.0f, 0.0f, 1.0f});
+    const float length = std::sqrt(worldNormal.x * worldNormal.x +
+                                   worldNormal.y * worldNormal.y +
+                                   worldNormal.z * worldNormal.z);
+    worldNormal = Vec3{worldNormal.x / length, worldNormal.y / length, worldNormal.z / length};
+
+    EXPECT(near(worldNormal.x, 0.0f));
+    EXPECT(near(worldNormal.y, -0.70710678f));
+    EXPECT(near(worldNormal.z, 0.70710678f));
+    // Perpendicular to both transformed tangents.
+    EXPECT(near(worldNormal.x * 1.0f + worldNormal.y * 0.0f + worldNormal.z * 0.0f, 0.0f));
+    EXPECT(near(worldNormal.x * 0.0f + worldNormal.y * 1.0f + worldNormal.z * 1.0f, 0.0f));
+}
+
 void DirectionalLightForwardMatchesEngineRotation() {
     using helengine::dreamcast::directionalLightForward;
     using helengine::dreamcast::GeneratedQuaternion;
@@ -227,6 +252,13 @@ void DirectionalLightForwardMatchesEngineRotation() {
     EXPECT(near(yawed.x, -1.0f));
     EXPECT(near(yawed.y, 0.0f));
     EXPECT(near(yawed.z, 0.0f));
+
+    // Ninety degrees about +X takes -Z to +Y, and exercises the qx terms the
+    // identity and yaw cases leave at zero.
+    Vec3 pitched = directionalLightForward(GeneratedQuaternion{halfRootTwo, 0.0f, 0.0f, halfRootTwo});
+    EXPECT(near(pitched.x, 0.0f));
+    EXPECT(near(pitched.y, 1.0f));
+    EXPECT(near(pitched.z, 0.0f));
 }
 
 } // namespace
@@ -240,6 +272,7 @@ int main() {
     GeneratedHierarchyMatchesParentTimesChildNativeOrder();
     NormalMatrixKeepsNormalsPerpendicularUnderNonuniformScale();
     NormalMatrixRejectsInvalidModelTransforms();
+    NormalMatrixDistinguishesCofactorFromItsTranspose();
     DirectionalLightForwardMatchesEngineRotation();
     if (failures != 0) {
         std::cerr << failures << " assertion(s) failed\n";
