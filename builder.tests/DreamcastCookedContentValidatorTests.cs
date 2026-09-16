@@ -97,17 +97,14 @@ public sealed class DreamcastCookedContentValidatorTests {
         Assert.Contains(fragment, exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Lit, textured and non-opaque cooked materials are rejected.</summary>
+    /// <summary>Textured and non-opaque cooked materials are rejected.</summary>
     [Theory]
-    [InlineData("lit", "unlit")]
     [InlineData("alpha", "opaque")]
     [InlineData("texture", "texture")]
     public void RejectsUnsupportedMaterial(string mutation, string fragment) {
         using TemporaryDirectory temporary = new();
         PlatformMaterialAsset material = DreamcastCookedTestContent.CreateMaterial();
-        if (mutation == "lit") {
-            material.Lit = true;
-        } else if (mutation == "alpha") {
+        if (mutation == "alpha") {
             material.BaseColorA = 254;
         } else {
             material.TextureRelativePath = "textures/cube.png";
@@ -117,6 +114,20 @@ public sealed class DreamcastCookedContentValidatorTests {
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
 
         Assert.Contains(fragment, exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Lit materials are supported and the light components that drive them are allowed.</summary>
+    [Fact]
+    public void AcceptsLitMaterialAndLightComponents() {
+        using TemporaryDirectory temporary = new();
+        PlatformMaterialAsset material = DreamcastCookedTestContent.CreateMaterial();
+        material.Lit = true;
+        Stage(temporary.Path, material: material, extraEntities: [
+            DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.DirectionalLightComponent")]),
+            DreamcastCookedTestContent.CreateEntity(4, true, [DreamcastCookedTestContent.CreateComponent("helengine.AmbientLightComponent")])
+        ]);
+
+        Validate(temporary.Path);
     }
 
     /// <summary>A package whose model file is absent is rejected even though the scene still names it.</summary>

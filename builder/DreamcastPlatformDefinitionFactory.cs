@@ -32,28 +32,28 @@ public static class DreamcastPlatformDefinitionFactory {
             ]);
 
         PlatformMaterialSchemaDefinition materialSchema = new(
-            DreamcastMaterialSchemaIds.UnlitSchemaId,
+            DreamcastMaterialSchemaIds.StandardSchemaId,
             "Dreamcast Opaque Unlit",
-            ["dc-unlit"],
+            [DreamcastMaterialSchemaIds.StandardGraphicsProfileId],
             [
                 new(DreamcastMaterialSchemaIds.BaseColorFieldId, "Base Color", PlatformMaterialFieldKind.Color, "#FFFFFFFF", true, []),
                 new(DreamcastMaterialSchemaIds.TextureRelativePathFieldId, "Texture", PlatformMaterialFieldKind.Text, string.Empty, true, []),
-                new(DreamcastMaterialSchemaIds.LightingModeFieldId, "Lighting", PlatformMaterialFieldKind.Choice, "unlit", true, ["unlit"]),
+                new(DreamcastMaterialSchemaIds.LightingModeFieldId, "Lighting", PlatformMaterialFieldKind.Choice, DreamcastMaterialSchemaIds.LightingLitValue, true, [DreamcastMaterialSchemaIds.LightingLitValue, DreamcastMaterialSchemaIds.LightingUnlitValue]),
                 new(DreamcastMaterialSchemaIds.TransparencyFieldId, "Transparency", PlatformMaterialFieldKind.Choice, "opaque", true, ["opaque"]),
                 new(DreamcastMaterialSchemaIds.DoubleSidedFieldId, "Double Sided", PlatformMaterialFieldKind.Boolean, "false", true, []),
                 new(DreamcastMaterialSchemaIds.VertexColorModeFieldId, "Vertex Color", PlatformMaterialFieldKind.Choice, "ignore", true, ["ignore"])
             ]);
 
         PlatformBuildProfileDefinition[] profiles = [
-            new("debug", "Debug", "Dreamcast development build", "dc-unlit", "default", buildSettings),
-            new("release", "Release", "Dreamcast release build", "dc-unlit", "default", buildSettings)
+            new("debug", "Debug", "Dreamcast development build", DreamcastMaterialSchemaIds.StandardGraphicsProfileId, "default", buildSettings),
+            new("release", "Release", "Dreamcast release build", DreamcastMaterialSchemaIds.StandardGraphicsProfileId, "default", buildSettings)
         ];
 
         return new PlatformDefinition(
             "dc",
             "Sega Dreamcast",
             profiles,
-            [new PlatformGraphicsProfileDefinition("dc-unlit", "Dreamcast Unlit", "PVR opaque unlit renderer", [])],
+            [new PlatformGraphicsProfileDefinition(DreamcastMaterialSchemaIds.StandardGraphicsProfileId, "Dreamcast Standard", "PVR opaque renderer with per-vertex lighting", [])],
             [new PlatformAssetRequirementDefinition("scene", "Scene", true, ["helen"])],
             [materialSchema],
             [

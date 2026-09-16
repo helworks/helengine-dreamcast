@@ -8,7 +8,9 @@ public sealed class DreamcastCookedContentValidator {
     const int MaximumTriangles = 128;
     const string CameraTypeId = "helengine.CameraComponent";
     const string MeshTypeId = "helengine.MeshComponent";
-    const string RendererFamilyId = "dc-unlit";
+    const string DirectionalLightTypeId = "helengine.DirectionalLightComponent";
+    const string AmbientLightTypeId = "helengine.AmbientLightComponent";
+    const string RendererFamilyId = "dc-standard";
 
     /// <summary>Validates the startup scene cardinality and every staged model and material in the ROMFS tree.</summary>
     /// <remarks>
@@ -67,7 +69,7 @@ public sealed class DreamcastCookedContentValidator {
             throw new InvalidOperationException("Staged package contains no model; the startup mesh has nothing to draw.");
         }
         if (materialCount < 1) {
-            throw new InvalidOperationException("Staged package contains no dc-unlit material; the startup mesh has no material.");
+            throw new InvalidOperationException("Staged package contains no dc-standard material; the startup mesh has no material.");
         }
     }
 
@@ -79,6 +81,9 @@ public sealed class DreamcastCookedContentValidator {
                     cameraCount++;
                 } else if (string.Equals(component.ComponentTypeId, MeshTypeId, StringComparison.Ordinal)) {
                     meshCount++;
+                } else if (string.Equals(component.ComponentTypeId, DirectionalLightTypeId, StringComparison.Ordinal) ||
+                           string.Equals(component.ComponentTypeId, AmbientLightTypeId, StringComparison.Ordinal)) {
+                    continue;
                 } else if (component.ComponentTypeId != null && component.ComponentTypeId.StartsWith("helengine.", StringComparison.Ordinal)) {
                     // Engine 2D, light, audio, animation and physics components have no Dreamcast v0.2
                     // adapter; project code components run inside generated Core and are allowed.
@@ -150,9 +155,6 @@ public sealed class DreamcastCookedContentValidator {
     static void ValidateMaterial(PlatformMaterialAsset material, string path) {
         if (!string.Equals(material.RendererFamilyId, RendererFamilyId, StringComparison.Ordinal)) {
             throw new InvalidOperationException($"Material '{path}' targets renderer family '{material.RendererFamilyId}' instead of '{RendererFamilyId}'.");
-        }
-        if (material.Lit) {
-            throw new InvalidOperationException($"Material '{path}' is lit; Dreamcast v0.2 supports unlit materials only.");
         }
         if (!string.IsNullOrEmpty(material.TextureRelativePath)) {
             throw new InvalidOperationException($"Material '{path}' binds a texture; Dreamcast v0.2 supports untextured materials only.");

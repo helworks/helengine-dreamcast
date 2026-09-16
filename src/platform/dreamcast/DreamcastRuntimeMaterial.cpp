@@ -21,13 +21,14 @@ DreamcastRuntimeMaterial::DreamcastRuntimeMaterial() : ::RuntimeMaterial() {
 
 DreamcastRuntimeMaterial* DreamcastRuntimeMaterial::Create(
     const ::PlatformMaterialAsset& asset) {
-    if (asset.RendererFamilyId != "dc-unlit" || !asset.TextureRelativePath.empty() ||
-        asset.DoubleSided || asset.UseVertexColor || asset.Lit || asset.BaseColorA != 255) {
-        throw std::invalid_argument("Dreamcast material does not match the opaque dc-unlit contract.");
+    if (asset.RendererFamilyId != "dc-standard" || !asset.TextureRelativePath.empty() ||
+        asset.DoubleSided || asset.UseVertexColor || asset.BaseColorA != 255) {
+        throw std::invalid_argument("Dreamcast material does not match the opaque dc-standard contract.");
     }
     auto runtime = std::unique_ptr<DreamcastRuntimeMaterial>(new DreamcastRuntimeMaterial());
     try {
         runtime->set_Id(asset.Id);
+        runtime->lit_ = asset.Lit;
         runtime->color_ = ColorRgba{
             static_cast<float>(asset.BaseColorR) / 255.0f,
             static_cast<float>(asset.BaseColorG) / 255.0f,
@@ -58,6 +59,10 @@ void DreamcastRuntimeMaterial::Dispose() {
 
 ColorRgba DreamcastRuntimeMaterial::color() const noexcept {
     return color_;
+}
+
+bool DreamcastRuntimeMaterial::lit() const noexcept {
+    return lit_;
 }
 
 } // namespace helengine::dreamcast

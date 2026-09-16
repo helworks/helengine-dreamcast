@@ -12,10 +12,10 @@ public sealed class DreamcastMaterialCookerTests {
         PlatformMaterialCookResult result = new DreamcastPlatformAssetBuilder().CookMaterial(CreateRequest("#C02010FF"));
 
         helengine.PlatformMaterialAsset cooked = Assert.IsType<helengine.PlatformMaterialAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
-        Assert.Equal("dc-unlit", cooked.RendererFamilyId);
+        Assert.Equal("dc-standard", cooked.RendererFamilyId);
         Assert.False(cooked.DoubleSided);
         Assert.False(cooked.UseVertexColor);
-        Assert.False(cooked.Lit);
+        Assert.True(cooked.Lit);
         Assert.Equal((byte)0xC0, cooked.BaseColorR);
         Assert.Equal((byte)0x20, cooked.BaseColorG);
         Assert.Equal((byte)0x10, cooked.BaseColorB);
@@ -37,7 +37,6 @@ public sealed class DreamcastMaterialCookerTests {
     /// <summary>Confirms unsupported material state is rejected with a diagnostic reason.</summary>
     [Theory]
     [InlineData("alpha", "opaque materials")]
-    [InlineData("lit", "unlit lighting")]
     [InlineData("texture-relative-path", "texture bindings")]
     [InlineData("vertex-color-mode", "vertex colors")]
     public void CookMaterial_RejectsUnsupportedState(string mutation, string messageFragment) {
@@ -45,8 +44,6 @@ public sealed class DreamcastMaterialCookerTests {
         if (mutation == "alpha") {
             fields[DreamcastMaterialSchemaIds.BaseColorFieldId] = "#FFFFFFFF"[..^2] + "FE";
             messageFragment = "opaque base color";
-        } else if (mutation == "lit") {
-            fields[DreamcastMaterialSchemaIds.LightingModeFieldId] = "lit";
         } else if (mutation == "texture-relative-path") {
             fields[DreamcastMaterialSchemaIds.TextureRelativePathFieldId] = "textures/cube.png";
         } else {
@@ -69,11 +66,37 @@ public sealed class DreamcastMaterialCookerTests {
         PlatformMaterialCookResult result = new DreamcastPlatformAssetBuilder().CookMaterial(CreateRequest(fields));
 
         helengine.PlatformMaterialAsset cooked = Assert.IsType<helengine.PlatformMaterialAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
-        Assert.False(cooked.Lit);
+        Assert.True(cooked.Lit);
         Assert.False(cooked.DoubleSided);
         Assert.False(cooked.UseVertexColor);
         Assert.Equal(string.Empty, cooked.TextureRelativePath);
         Assert.Equal(byte.MaxValue, cooked.BaseColorA);
+    }
+
+    /// <summary>Confirms an explicit unlit material still cooks with the flag cleared.</summary>
+    [Fact]
+    public void CookMaterial_EmitsExplicitUnlit() {
+        Dictionary<string, string> fields = CreateFields("#C02010FF");
+        fields[DreamcastMaterialSchemaIds.LightingModeFieldId] = "unlit";
+
+        PlatformMaterialCookResult result = new DreamcastPlatformAssetBuilder().CookMaterial(CreateRequest(fields));
+
+        helengine.PlatformMaterialAsset cooked = Assert.IsType<helengine.PlatformMaterialAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.False(cooked.Lit);
+    }
+
+    /// <summary>Confirms a material with only the engine's common fields defaults to lit.</summary>
+    [Fact]
+    public void CookMaterial_DefaultsToLit() {
+        Dictionary<string, string> fields = new(StringComparer.OrdinalIgnoreCase) {
+            [DreamcastMaterialSchemaIds.BaseColorFieldId] = "#FFFFFFFF",
+            ["casts-shadow"] = "false"
+        };
+
+        PlatformMaterialCookResult result = new DreamcastPlatformAssetBuilder().CookMaterial(CreateRequest(fields));
+
+        helengine.PlatformMaterialAsset cooked = Assert.IsType<helengine.PlatformMaterialAsset>(helengine.files.AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.True(cooked.Lit);
     }
 
     /// <summary>Confirms the base color itself is never defaulted.</summary>
@@ -94,7 +117,7 @@ public sealed class DreamcastMaterialCookerTests {
             "materials/cube",
             "dc",
             "debug",
-            "dc-unlit",
+            "dc-standard",
             "foreign-schema",
             CreateFields("#FFFFFFFF"));
 
@@ -119,8 +142,8 @@ public sealed class DreamcastMaterialCookerTests {
             "materials/cube",
             "dc",
             "debug",
-            "dc-unlit",
-            DreamcastMaterialSchemaIds.UnlitSchemaId,
+            "dc-standard",
+            DreamcastMaterialSchemaIds.StandardSchemaId,
             fields);
     }
 
@@ -131,7 +154,7 @@ public sealed class DreamcastMaterialCookerTests {
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
             [DreamcastMaterialSchemaIds.BaseColorFieldId] = baseColor,
             [DreamcastMaterialSchemaIds.TextureRelativePathFieldId] = string.Empty,
-            [DreamcastMaterialSchemaIds.LightingModeFieldId] = "unlit",
+            [DreamcastMaterialSchemaIds.LightingModeFieldId] = "lit",
             [DreamcastMaterialSchemaIds.TransparencyFieldId] = "opaque",
             [DreamcastMaterialSchemaIds.DoubleSidedFieldId] = "false",
             [DreamcastMaterialSchemaIds.VertexColorModeFieldId] = "ignore"

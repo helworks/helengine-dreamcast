@@ -1,9 +1,18 @@
 namespace helengine.dreamcast.builder;
 
-/// <summary>Defines stable field identifiers for the Dreamcast opaque unlit material schema.</summary>
+/// <summary>Defines stable field identifiers for the Dreamcast opaque material schema.</summary>
 public static class DreamcastMaterialSchemaIds {
-    /// <summary>Stable schema identifier consumed by the Dreamcast builder.</summary>
-    public const string UnlitSchemaId = "dc-unlit-v1";
+    /// <summary>Stable Dreamcast material schema id.</summary>
+    public const string StandardSchemaId = "dc-standard-v1";
+
+    /// <summary>Stable Dreamcast graphics profile and cooked renderer family id.</summary>
+    public const string StandardGraphicsProfileId = "dc-standard";
+
+    /// <summary>Authored lighting choice that enables per-vertex lighting.</summary>
+    public const string LightingLitValue = "lit";
+
+    /// <summary>Authored lighting choice that keeps the flat base color.</summary>
+    public const string LightingUnlitValue = "unlit";
 
     /// <summary>Authored base-color field identifier.</summary>
     public const string BaseColorFieldId = "base-color";

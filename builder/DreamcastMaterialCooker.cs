@@ -14,11 +14,11 @@ public sealed class DreamcastMaterialCooker {
             throw new ArgumentNullException(nameof(request));
         } else if (!string.Equals(request.TargetPlatformId, "dc", StringComparison.OrdinalIgnoreCase)) {
             throw new InvalidOperationException($"Dreamcast cannot cook materials for target platform '{request.TargetPlatformId}'.");
-        } else if (!string.Equals(request.SchemaId, DreamcastMaterialSchemaIds.UnlitSchemaId, StringComparison.OrdinalIgnoreCase)) {
+        } else if (!string.Equals(request.SchemaId, DreamcastMaterialSchemaIds.StandardSchemaId, StringComparison.OrdinalIgnoreCase)) {
             throw new InvalidOperationException($"Dreamcast does not support material schema '{request.SchemaId}'.");
         } else if (!string.IsNullOrWhiteSpace(request.SelectedGraphicsProfileId)
-            && !string.Equals(request.SelectedGraphicsProfileId, "dc-unlit", StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException($"Dreamcast material requires graphics profile 'dc-unlit', received '{request.SelectedGraphicsProfileId}'.");
+            && !string.Equals(request.SelectedGraphicsProfileId, DreamcastMaterialSchemaIds.StandardGraphicsProfileId, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException($"Dreamcast material requires graphics profile 'dc-standard', received '{request.SelectedGraphicsProfileId}'.");
         }
 
         // The authored base color is mandatory; every other field falls back to the
@@ -28,35 +28,42 @@ public sealed class DreamcastMaterialCooker {
         IReadOnlyDictionary<string, string> fields = request.FieldValues;
         string baseColorValue = Require(fields, DreamcastMaterialSchemaIds.BaseColorFieldId);
         string texturePath = Resolve(fields, DreamcastMaterialSchemaIds.TextureRelativePathFieldId, string.Empty);
-        string lightingMode = Resolve(fields, DreamcastMaterialSchemaIds.LightingModeFieldId, "unlit");
+        string lightingMode = Resolve(fields, DreamcastMaterialSchemaIds.LightingModeFieldId, DreamcastMaterialSchemaIds.LightingLitValue);
         string transparencyMode = Resolve(fields, DreamcastMaterialSchemaIds.TransparencyFieldId, "opaque");
         string doubleSidedMode = Resolve(fields, DreamcastMaterialSchemaIds.DoubleSidedFieldId, "false");
         string vertexColorMode = Resolve(fields, DreamcastMaterialSchemaIds.VertexColorModeFieldId, "ignore");
 
         if (!string.IsNullOrWhiteSpace(texturePath)) {
-            throw new InvalidOperationException("Dreamcast dc-unlit-v1 does not support texture bindings.");
-        } else if (!string.Equals(lightingMode, "unlit", StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException("Dreamcast dc-unlit-v1 requires unlit lighting.");
+            throw new InvalidOperationException("Dreamcast dc-standard-v1 does not support texture bindings.");
         } else if (!string.Equals(transparencyMode, "opaque", StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException("Dreamcast dc-unlit-v1 requires opaque materials.");
+            throw new InvalidOperationException("Dreamcast dc-standard-v1 requires opaque materials.");
         } else if (ParseBoolean(doubleSidedMode, DreamcastMaterialSchemaIds.DoubleSidedFieldId)) {
-            throw new InvalidOperationException("Dreamcast dc-unlit-v1 requires single-sided materials.");
+            throw new InvalidOperationException("Dreamcast dc-standard-v1 requires single-sided materials.");
         } else if (!string.Equals(vertexColorMode, "ignore", StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException("Dreamcast dc-unlit-v1 requires vertex colors to be ignored.");
+            throw new InvalidOperationException("Dreamcast dc-standard-v1 requires vertex colors to be ignored.");
+        }
+
+        bool lit;
+        if (string.Equals(lightingMode, DreamcastMaterialSchemaIds.LightingLitValue, StringComparison.OrdinalIgnoreCase)) {
+            lit = true;
+        } else if (string.Equals(lightingMode, DreamcastMaterialSchemaIds.LightingUnlitValue, StringComparison.OrdinalIgnoreCase)) {
+            lit = false;
+        } else {
+            throw new InvalidOperationException($"Dreamcast dc-standard-v1 lighting mode must be 'lit' or 'unlit', received '{lightingMode}'.");
         }
 
         ParseColor(baseColorValue, out byte red, out byte green, out byte blue, out byte alpha);
         if (alpha != byte.MaxValue) {
-            throw new InvalidOperationException("Dreamcast dc-unlit-v1 requires an opaque base color (alpha FF).");
+            throw new InvalidOperationException("Dreamcast dc-standard-v1 requires an opaque base color (alpha FF).");
         }
 
         helengine.PlatformMaterialAsset cookedAsset = new() {
             Id = request.MaterialAssetId,
-            RendererFamilyId = "dc-unlit",
+            RendererFamilyId = DreamcastMaterialSchemaIds.StandardGraphicsProfileId,
             TextureRelativePath = string.Empty,
             DoubleSided = false,
             UseVertexColor = false,
-            Lit = false,
+            Lit = lit,
             BaseColorR = red,
             BaseColorG = green,
             BaseColorB = blue,
@@ -75,7 +82,7 @@ public sealed class DreamcastMaterialCooker {
         if (fields == null) {
             throw new ArgumentNullException(nameof(fields));
         } else if (!fields.TryGetValue(fieldId, out value) || string.IsNullOrWhiteSpace(value)) {
-            throw new InvalidOperationException($"Dreamcast dc-unlit-v1 requires material field '{fieldId}'.");
+            throw new InvalidOperationException($"Dreamcast dc-standard-v1 requires material field '{fieldId}'.");
         }
 
         return value.Trim();

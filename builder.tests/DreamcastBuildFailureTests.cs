@@ -123,8 +123,8 @@ public sealed class DreamcastBuildFailureTests {
         PlatformCookProfile cookProfile = new(
             "dc-default",
             "Dreamcast",
-            new PlatformCookProfileCapabilities("dc-unlit", "none", "none", "helengine", PlatformSerializationEndianness.LittleEndian));
-        PlatformBuildTargetVariant variant = new("dc-release", "dc", "dc-unlit", cookProfile.CookProfileId);
+            new PlatformCookProfileCapabilities("dc-standard", "none", "none", "helengine", PlatformSerializationEndianness.LittleEndian));
+        PlatformBuildTargetVariant variant = new("dc-release", "dc", "dc-standard", cookProfile.CookProfileId);
         return new PlatformBuildRequest(
             manifest,
             [variant],
@@ -132,7 +132,7 @@ public sealed class DreamcastBuildFailureTests {
             Path.Combine(root, "output"),
             workingRoot,
             "release",
-            "dc-unlit",
+            "dc-standard",
             "default",
             null,
             null,

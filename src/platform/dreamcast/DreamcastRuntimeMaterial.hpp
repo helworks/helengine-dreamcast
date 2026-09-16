@@ -20,11 +20,15 @@ public:
 
     ColorRgba color() const noexcept;
 
+    /// True when the authored material asks for per-vertex lighting.
+    bool lit() const noexcept;
+
 private:
     DreamcastRuntimeMaterial();
 
     ColorRgba color_{};
     bool disposed_ = false;
+    bool lit_ = false;
 };
 
 } // namespace helengine::dreamcast

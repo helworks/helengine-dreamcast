@@ -71,13 +71,13 @@ internal static class DreamcastCookedTestContent {
         };
     }
 
-    /// <summary>Creates the opaque unlit red dc-unlit material.</summary>
+    /// <summary>Creates the opaque red dc-standard material.</summary>
     public static PlatformMaterialAsset CreateMaterial() {
         return new PlatformMaterialAsset {
             Id = "materials/cube",
             AuthoringAssetId = CreateAssetId(MaterialPath),
             FormerAuthoringAssetIds = Array.Empty<string>(),
-            RendererFamilyId = "dc-unlit",
+            RendererFamilyId = "dc-standard",
             TextureRelativePath = string.Empty,
             DoubleSided = false,
             UseVertexColor = false,
