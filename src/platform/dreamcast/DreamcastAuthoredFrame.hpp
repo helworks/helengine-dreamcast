@@ -8,9 +8,17 @@
 
 namespace helengine::dreamcast {
 
-/// The v0.2 authored projection uses a fixed 45-degree vertical field of view.
-/// The diagnostic cube keeps its own 1.10 radian value; the two are not shared.
+/// Default vertical field of view in radians, 45 degrees, matching the engine's
+/// CameraProjectionUtils.DefaultFieldOfView. The authored projection reads the
+/// value from the camera; this constant is only the fallback a camera that was
+/// never authored would carry. The diagnostic cube keeps its own 1.10 radian
+/// value; the two are not shared.
 constexpr float kAuthoredVerticalFovRadians = 0.78539816339744830962f;
+
+/// Accepted vertical field-of-view range in radians, mirroring the engine's
+/// CameraProjectionUtils clamp so both sides agree on what a camera may author.
+constexpr float kMinimumVerticalFovRadians = 0.0174533f;
+constexpr float kMaximumVerticalFovRadians = 3.0543262f;
 
 /// Normalized camera viewport rectangle as authored (x, y, width, height).
 struct AuthoredViewport {
@@ -48,6 +56,9 @@ struct AuthoredCameraState {
     bool clearDepthEnabled;
     bool clearStencilEnabled;
     ColorRgba clearColor;
+    // Vertical field of view in radians, read from the authored camera so one
+    // scene frames the same way on every platform.
+    float verticalFovRadians;
 };
 
 /// One drawable submission: the entity world matrix, its converted mesh and

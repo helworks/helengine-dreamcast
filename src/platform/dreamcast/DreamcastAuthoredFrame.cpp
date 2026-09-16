@@ -110,6 +110,9 @@ AuthoredFrameStatus AuthoredFrameAssembler::setCamera(const AuthoredCameraState&
     summary_.cameraCount = 1;
     if (camera.hasRenderTarget || !finite(camera.nearPlane) || !finite(camera.farPlane) ||
         camera.nearPlane <= 0.0f || camera.farPlane <= camera.nearPlane ||
+        !finite(camera.verticalFovRadians) ||
+        camera.verticalFovRadians < kMinimumVerticalFovRadians ||
+        camera.verticalFovRadians > kMaximumVerticalFovRadians ||
         !finite(camera.viewport.x) || !finite(camera.viewport.y) ||
         !finite(camera.viewport.width) || !finite(camera.viewport.height) ||
         !fullViewport(camera.viewport)) {
@@ -259,7 +262,7 @@ AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) no
     const GeometryConfig config{
         viewportWidth_,
         viewportHeight_,
-        kAuthoredVerticalFovRadians,
+        camera_.verticalFovRadians,
         camera_.nearPlane,
         camera_.farPlane,
     };

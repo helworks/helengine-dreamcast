@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -73,6 +74,7 @@ AuthoredCameraState validCamera() {
         true,
         false,
         ColorRgba{0.1f, 0.2f, 0.3f, 1.0f},
+        kAuthoredVerticalFovRadians,
     };
 }
 
@@ -178,6 +180,51 @@ void CameraTranslationMovesProjectionOpposite() {
     const float focal = 240.0f / std::tan(kAuthoredVerticalFovRadians * 0.5f);
     // Moving the camera one unit right shifts the model one unit left on screen.
     EXPECT(near(assembler.geometry().triangles[0].vertices[0].x, 320.0f - focal / 6.0f, 1.0e-2f));
+}
+
+void ProjectionUsesTheAuthoredCameraFieldOfView() {
+    // A camera authored with a narrower field of view magnifies the same model.
+    // The focal length is derived from the camera's own value, not a constant.
+    const float narrowFov = 0.5f;
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    AuthoredCameraState camera = validCamera();
+    camera.verticalFovRadians = narrowFov;
+    const SourceVertex vertices[3] = {
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
+    };
+    const TriangleIndex triangles[1] = {{0, 1, 2}};
+    AuthoredDrawState drawable{translation(0.0f, 0.0f, -6.0f),
+                               MeshView{vertices, 3, triangles, 1, false}, true,
+                               ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}, false};
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+
+    const float narrowFocal = 240.0f / std::tan(narrowFov * 0.5f);
+    const float defaultFocal = 240.0f / std::tan(kAuthoredVerticalFovRadians * 0.5f);
+    const ProjectedVertex& top = assembler.geometry().triangles[0].vertices[0];
+    EXPECT(near(top.y, 240.0f - narrowFocal / 6.0f, 1.0e-2f));
+    // Guards against the assembler ignoring the camera and using the default.
+    EXPECT(!near(narrowFocal, defaultFocal, 1.0f));
+}
+
+void OutOfRangeFieldOfViewFails() {
+    RecordingSink sink;
+    const float rejected[4] = {0.0f, -0.5f, 3.2f, std::numeric_limits<float>::quiet_NaN()};
+    for (float value : rejected) {
+        AuthoredFrameAssembler assembler;
+        AuthoredCameraState camera = validCamera();
+        camera.verticalFovRadians = value;
+        assembler.begin(640.0f, 480.0f);
+        EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::InvalidCamera);
+        EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+        EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidCamera);
+    }
+    EXPECT(sink.presentCount == 0);
 }
 
 void CardinalityViolationsFailBeforeAnyPresentation() {
@@ -542,6 +589,8 @@ int main() {
     OneCameraOneDrawableDeliversAuthoredStateExactlyOnce();
     ProjectionUsesFortyFiveDegreeVerticalFovAndPositiveDepth();
     CameraTranslationMovesProjectionOpposite();
+    ProjectionUsesTheAuthoredCameraFieldOfView();
+    OutOfRangeFieldOfViewFails();
     CardinalityViolationsFailBeforeAnyPresentation();
     InvalidCameraMaterialAndTransformsFailBeforePackets();
     FullyClippedDrawableIsAValidClearOnlyFrame();

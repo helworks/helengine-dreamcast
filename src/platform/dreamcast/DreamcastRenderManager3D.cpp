@@ -207,6 +207,9 @@ AuthoredCameraState gatherCamera(::ICamera& camera) {
     state.worldFromCamera = matrixFromGenerated(owner->get_WorldTransformMatrix());
     state.nearPlane = camera.get_NearPlaneDistance();
     state.farPlane = camera.get_FarPlaneDistance();
+    // The vertical field of view belongs to the authored camera, so one scene
+    // frames the same way here as it does on every other platform.
+    state.verticalFovRadians = camera.get_FieldOfView();
     const ::float4 viewport = camera.get_Viewport();
     state.viewport = AuthoredViewport{viewport.X, viewport.Y, viewport.Z, viewport.W};
     state.hasRenderTarget = camera.get_RenderTarget() != nullptr;
