@@ -27,6 +27,22 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Equal(new[] { "helen" }, sceneRequirement.SupportedFileExtensions);
     }
 
+    /// <summary>Confirms directional and ambient lights are transformed through while point and spot lights are rejected.</summary>
+    [Fact]
+    public void DefinitionSupportsDirectionalAndAmbientLightsAndRejectsPointAndSpot() {
+        DreamcastPlatformAssetBuilder builder = new();
+
+        PlatformComponentSupportRule directional = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.DirectionalLightComponent");
+        PlatformComponentSupportRule ambient = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.AmbientLightComponent");
+        PlatformComponentSupportRule point = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.PointLightComponent");
+        PlatformComponentSupportRule spot = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.SpotLightComponent");
+        Assert.Equal(PlatformComponentSupportKind.Transform, directional.SupportKind);
+        Assert.Equal(PlatformComponentSupportKind.Transform, ambient.SupportKind);
+        Assert.Equal(PlatformComponentSupportKind.Unsupported, point.SupportKind);
+        Assert.Equal(PlatformComponentSupportKind.Unsupported, spot.SupportKind);
+        Assert.DoesNotContain(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.lightcomponent");
+    }
+
     /// <summary>Confirms the codegen profile publishes the fixed native ABI choices.</summary>
     [Fact]
     public void DefinitionPublishesDreamcastCodegenContract() {

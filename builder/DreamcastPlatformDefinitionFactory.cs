@@ -33,7 +33,7 @@ public static class DreamcastPlatformDefinitionFactory {
 
         PlatformMaterialSchemaDefinition materialSchema = new(
             DreamcastMaterialSchemaIds.StandardSchemaId,
-            "Dreamcast Opaque Unlit",
+            "Dreamcast Opaque Standard",
             [DreamcastMaterialSchemaIds.StandardGraphicsProfileId],
             [
                 new(DreamcastMaterialSchemaIds.BaseColorFieldId, "Base Color", PlatformMaterialFieldKind.Color, "#FFFFFFFF", true, []),
@@ -59,7 +59,10 @@ public static class DreamcastPlatformDefinitionFactory {
             [
                 new PlatformComponentSupportRule("helengine.meshcomponent", PlatformComponentSupportKind.Transform, "One static triangle-list mesh is supported.", "Remove unsupported mesh components."),
                 new PlatformComponentSupportRule("helengine.cameracomponent", PlatformComponentSupportKind.Transform, "One perspective camera is supported.", "Keep one authored camera."),
-                new PlatformComponentSupportRule("helengine.lightcomponent", PlatformComponentSupportKind.Unsupported, "Dreamcast v0.2 uses explicit unlit rendering.", "Remove light components.")
+                new PlatformComponentSupportRule("helengine.DirectionalLightComponent", PlatformComponentSupportKind.Transform, "Dreamcast v0.3 supports per-vertex directional lighting.", string.Empty),
+                new PlatformComponentSupportRule("helengine.AmbientLightComponent", PlatformComponentSupportKind.Transform, "Dreamcast v0.3 supports one summed ambient color.", string.Empty),
+                new PlatformComponentSupportRule("helengine.PointLightComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast lighting supports directional and ambient lights only.", "Remove point lights or exclude them on Dreamcast."),
+                new PlatformComponentSupportRule("helengine.SpotLightComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast lighting supports directional and ambient lights only.", "Remove spot lights or exclude them on Dreamcast.")
             ],
             [codegen],
             [new PlatformStorageProfileDefinition("romfs-package", "ROMFS Package", PlatformStorageProfileKind.LooseFiles, "dc-romfs-package", false)],

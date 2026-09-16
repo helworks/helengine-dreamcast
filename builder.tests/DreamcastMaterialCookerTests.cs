@@ -99,6 +99,17 @@ public sealed class DreamcastMaterialCookerTests {
         Assert.True(cooked.Lit);
     }
 
+    /// <summary>Confirms a lighting mode that is neither lit nor unlit is rejected with a diagnostic reason.</summary>
+    [Fact]
+    public void CookMaterial_RejectsUnrecognizedLightingMode() {
+        Dictionary<string, string> fields = CreateFields("#FFFFFFFF");
+        fields[DreamcastMaterialSchemaIds.LightingModeFieldId] = "phong";
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new DreamcastPlatformAssetBuilder().CookMaterial(CreateRequest(fields)));
+
+        Assert.Contains("lit", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Confirms the base color itself is never defaulted.</summary>
     [Fact]
     public void CookMaterial_RequiresBaseColor() {

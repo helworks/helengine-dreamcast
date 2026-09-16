@@ -4,9 +4,9 @@ using helengine.baseplatform.Results;
 
 namespace helengine.dreamcast.builder;
 
-/// <summary>Translates the restricted Dreamcast opaque unlit material schema into a cooked asset.</summary>
+/// <summary>Translates the restricted Dreamcast opaque material schema into a cooked asset.</summary>
 public sealed class DreamcastMaterialCooker {
-    /// <summary>Cooks one validated opaque, single-sided, unlit material.</summary>
+    /// <summary>Cooks one validated opaque, single-sided, untextured material that is lit by default and may opt out with lighting-mode 'unlit'.</summary>
     /// <param name="request">Material schema request supplied by the generic build graph.</param>
     /// <returns>Serialized platform material bytes with no shader dependencies.</returns>
     public PlatformMaterialCookResult Cook(PlatformMaterialCookRequest request) {
