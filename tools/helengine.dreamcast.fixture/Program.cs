@@ -33,7 +33,7 @@ public static class Program {
             } else if (string.Equals(args[index], "--variant", StringComparison.OrdinalIgnoreCase) && index + 1 < args.Length) {
                 variant = args[++index];
             } else {
-                throw new ArgumentException("Usage: helengine.dreamcast.fixture --output <directory> --variant <baseline|transform|color|camera|geometry|missing-model|wrong-startup|lit-material|textured-material|transparent-material|two-cameras|over-limit-mesh>.");
+                throw new ArgumentException("Usage: helengine.dreamcast.fixture --output <directory> --variant <baseline|transform|color|camera|geometry|missing-model|wrong-startup|lit|textured-material|transparent-material|two-cameras|over-limit-mesh>.");
             }
         }
         if (string.IsNullOrWhiteSpace(outputPath)) {

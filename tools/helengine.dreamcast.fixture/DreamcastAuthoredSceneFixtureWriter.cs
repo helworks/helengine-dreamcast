@@ -11,12 +11,12 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
     /// <summary>Stable fixture variants accepted by the command line tool.</summary>
     public static IReadOnlyList<string> SupportedVariants { get; } = [
         "baseline", "transform", "color", "camera", "geometry",
-        "missing-model", "wrong-startup", "lit-material", "textured-material", "transparent-material", "two-cameras", "over-limit-mesh"
+        "missing-model", "wrong-startup", "lit", "textured-material", "transparent-material", "two-cameras", "over-limit-mesh"
     ];
 
     /// <summary>Variants that the build graph or builder must reject with an identified error and no success manifest.</summary>
     public static IReadOnlyList<string> NegativeVariants { get; } = [
-        "missing-model", "wrong-startup", "lit-material", "textured-material", "transparent-material", "two-cameras", "over-limit-mesh"
+        "missing-model", "wrong-startup", "textured-material", "transparent-material", "two-cameras", "over-limit-mesh"
     ];
 
     const string SceneRelativePath = "scenes/startup.helen";
@@ -77,7 +77,7 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
         EditorBuildPlatformConfigDocument platform = document.Platforms.Single(item => string.Equals(item.PlatformId, "dc", StringComparison.Ordinal));
         platform.SelectedSceneIds = [startupSceneId];
         platform.SelectedBuildProfileId = "release";
-        platform.SelectedGraphicsProfileId = "dc-unlit";
+        platform.SelectedGraphicsProfileId = "dc-standard";
         platform.SelectedCodegenProfileId = "default";
         platform.SelectedStorageProfileId = "romfs-package";
         platform.SelectedMediaProfileId = "dreamcast-elf";
@@ -168,6 +168,22 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
                 ClearSettings = new CameraClearSettings(true, new float4(0.03f, 0.05f, 0.08f, 1f), true, 1f, false, 0)
             };
             rootEntities.Add(CreateEntity("camera-2", "Second Camera", new float3(0f, 2f, 6f), float3.One, [CreateComponent(CameraTypeId, authoring.CreateCameraPayload(secondCamera))]));
+        }
+
+        if (variant == "lit") {
+            float4 sunOrientation;
+            float4.CreateFromYawPitchRoll(-0.65f, -0.85f, 0f, out sunOrientation);
+            DirectionalLightComponent sun = new() {
+                Color = new float4(1f, 1f, 1f, 1f),
+                Intensity = 1f,
+                ShadowsEnabled = false,
+                ShadowMapMode = ShadowMapMode.Forced,
+                ShadowStrength = 1f,
+                ShadowDistance = 24f
+            };
+            SceneEntityAsset sunEntity = CreateEntity("sun", "Fixture Sun", new float3(0f, 4f, 0f), float3.One, [CreateComponent("helengine.DirectionalLightComponent", authoring.CreateLightPayload(sun))]);
+            sunEntity.LocalOrientation = sunOrientation;
+            rootEntities.Add(sunEntity);
         }
 
         SceneAsset scene = new() {
@@ -305,7 +321,7 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
                 AssetId = "materials/cube"
             },
             Processor = new MaterialAssetProcessorSettings {
-                SchemaId = "dc-unlit-v1"
+                SchemaId = "dc-standard-v1"
             }
         };
         document.Processor.FieldValues["base-color"] = BaseColorFor(variant);
@@ -321,12 +337,12 @@ public sealed class DreamcastAuthoredSceneFixtureWriter {
             EnvironmentId = string.Empty,
             Processor = new MaterialAssetProcessorOverrideSettings {
                 HasSchemaIdOverride = true,
-                SchemaId = "dc-unlit-v1"
+                SchemaId = "dc-standard-v1"
             }
         };
         document.Processor.FieldValues["base-color"] = BaseColorFor(variant);
         document.Processor.FieldValues["texture-relative-path"] = variant == "textured-material" ? "textures/cube.png" : string.Empty;
-        document.Processor.FieldValues["lighting-mode"] = variant == "lit-material" ? "lit" : "unlit";
+        document.Processor.FieldValues["lighting-mode"] = variant == "lit" ? "lit" : "unlit";
         document.Processor.FieldValues["transparency"] = variant == "transparent-material" ? "transparent" : "opaque";
         document.Processor.FieldValues["double-sided"] = "false";
         document.Processor.FieldValues["vertex-color-mode"] = "ignore";
