@@ -6,17 +6,37 @@ renders that scene through the PVR. It complements [Build.md](Build.md), which
 covers the standalone Diagnostic cube, and [Validation.md](Validation.md), which
 records the evidence rows.
 
-## What v0.2 supports
+## What v0.2/v0.3 supports
 
 - Platform `dc`, builder `helengine.dreamcast.builder` 0.2.0, engine 0.4.0,
-  graphics profile `dc-unlit`, material schema `dc-unlit-v1`.
+  graphics profile `dc-standard` (renamed from `dc-unlit`), material schema
+  `dc-standard-v1` (renamed from `dc-unlit-v1`).
 - One startup scene with exactly one enabled camera component and exactly one
   enabled static mesh component. Transform-only parent entities are allowed.
 - One model with 1..64 positions, 1..128 triangles, exactly one nonempty index
-  buffer and one submesh covering the whole triangle list.
-- One opaque, unlit, untextured, single-sided material whose authored RGB is
-  used as a flat vertex color. Vertex-color, lit, textured, double-sided or
+  buffer and one submesh covering the whole triangle list. A model may declare
+  per-vertex normals (`MeshView::hasNormals`); a lit material requires them.
+- One opaque, untextured, single-sided material whose authored RGB is used as
+  the flat or lit base color. Vertex-color, textured, double-sided or
   translucent materials are rejected at cook time and again at build time.
+  Both `unlit` (flat vertex color) and `lit` lighting modes are supported
+  (`lighting-mode` field, cooked to the material's `Lit` flag).
+- Lighting (v0.3): a lit material shades with per-vertex Lambertian diffuse
+  only, no specular. For each vertex, the authored normal is transformed to
+  world space and combined with every enabled ambient and directional light
+  gathered from the scene: `diffuse = ambient_rgb + sum(light.color *
+  max(0, -dot(unitNormal, light.direction)))` per enabled directional light
+  (lights facing away contribute nothing), then `finalColor =
+  clamp01(materialColor * diffuse)` per channel with alpha fixed at 1. Up to
+  four enabled directional lights are supported (`kMaxDirectionalLights = 4`);
+  a fifth fails the frame with status `too-many-directional-lights`
+  (`AuthoredFrameStatus::TooManyDirectionalLights`). Ambient lights are not
+  capped and sum unconditionally. A lit material on a mesh without normals
+  fails with status `lit-mesh-without-normals`
+  (`AuthoredFrameStatus::LitMeshWithoutNormals`). A non-finite ambient color,
+  or a non-finite or near-zero-length directional light direction/color,
+  fails with status `invalid-light` (`AuthoredFrameStatus::InvalidLight`)
+  rather than silently producing black.
 - Camera: authored rigid world transform, near/far planes and clear RGB, full
   viewport, back buffer only, color and depth clear enabled, no stencil. The
   vertical field of view is fixed at 45 degrees with a 640/480 aspect ratio.
@@ -25,7 +45,7 @@ records the evidence rows.
 - Budgets: one MiB of embedded cooked content, eight MiB resident ELF span
   including BSS and ROMFS, at least four MiB free heap after startup.
 - Start on controller port 0 exits the game cleanly. No other input, no audio,
-  physics, scripts, UI, animation, textures, lighting or scene switching.
+  physics, scripts, UI, animation, textures or scene switching.
 
 ## Pipeline
 
@@ -121,17 +141,20 @@ video, and publishes the terminal snapshots.
 Three diagnostic symbols are exported and resolved per ELF: the v0.1
 `helengine_dreamcast_diagnostics` renderer snapshot, the runtime probe
 `helengine_dreamcast_runtime_probe`, and the authored snapshot
-`helengine_dreamcast_authored_snapshot` (magic `HEAS`, version 1: stage, error,
-scene digest, camera/drawable counts, triangle counts, presented frames, first
-presented frame, clear ARGB, checked free heap, loop frames).
+`helengine_dreamcast_authored_snapshot` (magic `HEAS`, version 2 as of v0.3:
+stage, error, scene digest, camera/drawable counts, triangle counts, presented
+frames, first presented frame, clear ARGB, checked free heap, loop frames,
+gathered directional light count).
 
 ## Failure behaviour
 
 Every unsupported input fails with an identified error and no success
 manifest: missing authored roots, absent `Core.hpp`, absent catalog ABI,
 compiler failure, manifest scenes without a unique cooked path, more or fewer
-than one camera or mesh, over-limit models, lit/textured/translucent materials,
-or a missing referenced cooked file. A nonexistent boot-scene id in the project
+than one camera or mesh, over-limit models, textured/translucent materials, a
+lit material on a mesh without normals (`lit-mesh-without-normals`), more than
+four enabled directional lights (`too-many-directional-lights`), a non-finite
+or degenerate light (`invalid-light`), or a missing referenced cooked file. A nonexistent boot-scene id in the project
 routing or build configuration is not rejected by the generic engine graph, which
 substitutes the available project scene; only the builder-level startup/scene
 association check guards that case. The Diagnostic build mode and its selectors
@@ -141,10 +164,17 @@ are unchanged and remain available.
 
 `C:\dev\helprojs\demodisc` (project "city") is the cross-platform reference
 project; its `scenes/rendering/cube_test.helen` is generated by the project's
-own `CubeTestSceneFactory`, which excludes the instruction UI, light and orbit
-camera on minimal-runtime targets (`n64` and `dc`) and keeps the camera, the
-engine cube and the project's `CubeTestSpinComponent`, which spins through
-generated Core. The Dreamcast recipe mirrors the N64 one:
+own `CubeTestSceneFactory`, which excludes the instruction UI and orbit camera
+on minimal-runtime targets (`n64` and `dc`) and keeps the camera, the engine
+cube and the project's `CubeTestSpinComponent`, which spins through generated
+Core. As of the lighting plan, the scene's directional light (`CubeTestSun`)
+is no longer excluded on `dc` — nor, per the last observed state of the
+shared project, on `n64` either, since that platform separately gained
+lighting support — so the sun is included and lights the cube on Dreamcast;
+this scene and its `build_config.json` `dc` entry live in a
+shared, actively-edited working tree, so its exact exclusion set can change
+between sessions — re-check before relying on it. The Dreamcast recipe
+mirrors the N64 one:
 
 1. Project side (done once, 2026-09-15): `dc` added to `project.heproj`
    `supportedPlatforms` and `settings/platforms.json`, `settings/platform.dc.json`
@@ -152,9 +182,13 @@ generated Core. The Dreamcast recipe mirrors the N64 one:
    the project code rebuilt (`dotnet build user_settings/generated_code/projects/menu.tools/menu.tools.csproj`),
    the scene regenerated with `helengine.editor.app.dll --project ... --editor-command menu.generate-cube-test-scene`,
    and a `dc` entry added to `user_settings/build_config.json` (cube_test only,
-   `release`/`dc-unlit`/`default`/`romfs-package`/`dreamcast-elf`, no prebuild).
+   `release`/`dc-standard`/`default`/`romfs-package`/`dreamcast-elf`, no prebuild).
    The editor only compiles project code that was built; regenerate after every
-   factory change or the exclusions are silently stale.
+   factory change or the exclusions are silently stale. Running
+   `menu.generate-cube-test-scene` also rewrites `build_config.json` and drops
+   the `dc` entry entirely (it round-trips through a service that does not
+   know about `dc`); recreate it by copying the `n64` entry and overriding the
+   fields above plus the current scene content hash if this happens.
 2. Toolchain: the shared engine at `C:\dev\helworks\helengine` reports
    `1.0.0+ec2d7ff8...`, which the project requires, so the builder is compiled
    against it (`--artifacts-path v02/dotnet-main -p:HelengineRoot=C:/dev/helworks/helengine`).

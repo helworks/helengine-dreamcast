@@ -224,10 +224,13 @@ temporary remains on those paths.
 Cooked model conversion copies positions, indices, bounds and one submesh into
 owned native arrays, preserves the source model ID and retains the generated
 asset only through `RuntimeModel::SetRawModelAsset`. Material conversion copies
-the validated `dc-unlit` opaque color and render state. Borrowed raw-model
-creation is rejected without consuming its argument. Every adapter failure and
-release path is RAII guarded, and former-authoring-ID cleanup recognizes the
-generated `Array<T>::Empty()` static singleton before deleting metadata.
+the validated `dc-standard` opaque color and render state, including the
+cooked `Lit` flag (`PlatformMaterialAsset::Lit`), set from the authored
+`lighting-mode` field (`unlit`/`lit`, cooked schema `dc-standard-v1`).
+Borrowed raw-model creation is rejected without consuming its argument. Every
+adapter failure and release path is RAII guarded, and former-authoring-ID
+cleanup recognizes the generated `Array<T>::Empty()` static singleton before
+deleting metadata.
 
 The focused host suite is recorded under
 `v02/execution/task3-host-check-07` and covers geometry, matrix, mesh, raster
@@ -294,3 +297,53 @@ pipeline ELF was launched visibly through `launch_in_emulator.ps1 -Visible`
 as `DESKTOP-HELENA\Helena` with a nonzero main window handle titled
 `Flycast - helengine_dc`. This gate covers boot, scene load, the running frame
 loop and clean Start shutdown; the screen is clear-only until Task 5.
+
+## Light gathering and the dc-standard material (Tasks 4-5)
+
+The material's cooked schema is `dc-standard-v1` under graphics profile
+`dc-standard`; `PlatformMaterialAsset::Lit` (set from the authored
+`lighting-mode` field) selects Lambertian per-vertex shading instead of a flat
+vertex color. `DrawableCollector::Visit` copies `material->lit()` into the
+draw state alongside the material color.
+
+`DreamcastRenderManager3D.cpp`'s `gatherLights(::ObjectManager&)` reads the
+generated light lists once per frame through this ABI:
+
+```cpp
+List<::AmbientLightComponent*>* ObjectManager::get_AmbientLights();
+List<::DirectionalLightComponent*>* ObjectManager::get_DirectionalLights();
+::Entity* LightComponent::get_Parent();       // both light kinds
+bool Entity::get_IsHierarchyEnabled();
+::float4 Entity::get_Orientation();           // directional lights only
+::float4 LightComponent::get_Color();
+float LightComponent::get_Intensity();
+```
+
+Ambient contributions sum unconditionally (skipping disabled owners) with no
+cap. Directional lights are walked in authored order; each light's forward
+direction comes from the owning entity's world orientation quaternion through
+the engine's `float4.RotateVector` formula (the same one the GameCube
+renderer uses), normalized. Up to `kMaxDirectionalLights = 4` enabled
+directional lights are accepted; gathering a fifth reports
+`kMaxDirectionalLights + 1` and returns immediately, which
+`AuthoredFrameAssembler::setLights` turns into
+`AuthoredFrameStatus::TooManyDirectionalLights` (status string
+`too-many-directional-lights`). A non-finite ambient color, or a non-finite or
+near-zero-length (squared length <= 1.0e-8f) directional color/direction,
+fails with `AuthoredFrameStatus::InvalidLight` (`invalid-light`) rather than
+silently shading black. A lit material on a mesh without normals fails with
+`AuthoredFrameStatus::LitMeshWithoutNormals` (`lit-mesh-without-normals`).
+
+Per vertex, the authored normal is transformed to world space and combined as
+`diffuse = ambient_rgb + sum(light.color * max(0, -dot(unitNormal,
+light.direction)))` over the gathered directional lights (a light facing away
+from the vertex contributes nothing), then `finalColor = clamp01(materialColor
+* diffuse)` per channel with alpha fixed at 1 (`DreamcastAuthoredFrame.cpp`).
+There is no specular term.
+
+The authored snapshot (`helengine_dreamcast_authored_snapshot`, magic `HEAS`)
+is version 2 as of this work: the 16th `uint32_t` field, previously reserved,
+is now `directionalLightCount`, the number of directional lights `gatherLights`
+reported for the frame; `kDreamcastAuthoredSnapshotVersion = 2u`. The struct's
+overall size (64 bytes) and every other field's position are unchanged from
+version 1.

@@ -98,9 +98,110 @@ The v0.2 rows below were produced on 2026-09-15 from the `feature/dreamcast-v02`
 | Camera variant (camera +1 X) | same driver | `graph-camera/build/authored-58e28d2af57945d88508473db94f938d`, ELF `f49de740...` | Cube bbox x [112,354]: moved left, opposite to the transform variant; frame hash `f0be9134...`. | `task6/variant-comparison.txt` |
 | Geometry variant (halved local X) | same driver | `graph-geometry/build/authored-63abc1600d73490b932b56c5d7a1cbc9`, ELF `6c0d77a4...` | Cube bbox x [244,415], 46,002 red pixels versus 71,626: narrower silhouette, unchanged entity transform; frame hash `f170ecbf...`. | `task6/variant-comparison.txt` |
 | Negative: missing model | driver, fixture `missing-model` | `task6/graph-missing-model` | Graph failed: `FileNotFoundException: Model source file was not found.`; no manifest. | `task6/graph-missing-model.log` |
-| Negative: lit material | driver, fixture `lit-material` | `task6/graph-lit-material` | Cooker failed: `Dreamcast dc-unlit-v1 requires unlit lighting.`; no manifest. | `task6/graph-lit-material.log` |
 | Negative: textured material | driver, fixture `textured-material` | `task6/graph-textured-material` | Engine material import failed before the cooker: `imported texture path 'textures/cube.png' without a current texture asset id`; no manifest. The cooker's own texture rejection is covered by `DreamcastMaterialCookerTests`. | `task6/graph-textured-material.log` |
-| Negative: translucent material | driver, fixture `transparent-material` | `task6/graph-transparent-material` | Cooker failed: `Dreamcast dc-unlit-v1 requires opaque materials.`; no manifest. | `task6/graph-transparent-material.log` |
+| Negative: translucent material | driver, fixture `transparent-material` | `task6/graph-transparent-material` | Cooker failed: `Dreamcast dc-standard-v1 requires opaque materials.`; no manifest. | `task6/graph-transparent-material.log` |
 | Negative: two cameras | driver, fixture `two-cameras` | `task6/graph-two-cameras` | Builder validator failed: `requires exactly one enabled camera component in the startup scene; found 2.`; no manifest. | `task6/graph-two-cameras.log` |
 | Negative: over-limit mesh | driver, fixture `over-limit-mesh` (131 positions, 130 triangles) | `task6/graph-over-limit-mesh` | Builder validator failed: `Model 'cooked/imported/models/cube.hasset' has 131 positions; Dreamcast v0.2 supports 1 to 64.`; no manifest. | `task6/graph-over-limit-mesh.log` |
 | Wrong startup association (engine graph behaviour) | fixture `wrong-startup` with `sceneRouting.bootSceneId=scenes/missing` (run 1) and additionally the build configuration selecting `scenes/missing` (run 2) | `task6/graph-wrong-startup-routing-only`, `task6/graph-wrong-startup` | Both runs built a normal game whose ELF equals baseline (`c4577de1...`): the generic editor graph substitutes the available project scene instead of failing, so a nonexistent boot scene cannot be turned into a build failure from authored data without changing the shared engine. The builder-level guard (startup id absent from the resolved scene set, lone unrelated scene file) is covered by `DreamcastSceneCompatibilityValidator`/stager unit tests. Recorded as an engine finding, not a v0.2 rejection. | `task6/graph-wrong-startup.log`, `task6/fixture-wrong-startup/user_settings/build_config.json` |
+
+# Dreamcast v0.3 lighting evidence
+
+The v0.3 rows below were produced on 2026-09-16 at Dreamcast repo commit
+`95a755c746ef97b73d38f9c49c4c0f95e8e05336` (clean). **On-screen shading proof
+for a running authored ELF was not obtained.** Two independent, well-diagnosed
+environment blockers prevented it; both are recorded below with full evidence
+rather than worked around. Diagnostic-mode evidence (unaffected by either
+blocker) and static compile-level evidence (light gathering ABI, budgets) were
+obtained and are also recorded below.
+
+## Build identities
+
+| Ref | Build | Route | ELF SHA-256 | Notes |
+|---|---|---|---|---|
+| L1 | `v03/fixtures/lit-graph/build/authored-82d6c504b679427ba75f245660fb533c` | `prepare-authored-fixture.ps1 -Build`, fixture `lit`, engine version `0.4.0`, live `EngineRoot` | n/a (compile failed) | Fresh codegen; blocked by Blocker 1 below. |
+| CT1 | `v03/cube-test/graph-1/build/authored-2790ac458d7943bf99d210b64bbb5900` | same script, `FixtureRoot=C:\dev\helprojs\demodisc`, engine version `1.0.0+ec2d7ff8a5b2624bbc51784bd9eb0c9babed1843` | n/a (compile failed) | Fresh codegen; blocked by the identical Blocker 1, confirming it is not fixture-specific. |
+| L2 | `v03/fixtures/lit-direct2/output/authored-d1b154ae99f24c2da1f8a1aeb9168a2e` | direct `DreamcastPlatformAssetBuilder.BuildAsync` (own scratch driver, deleted after use) reusing the 2026-09-15 `v02/cube-test/cache/.../d87d222c.../generated-core`, staging the real `lit` fixture's model bytes, a directly-built `dc-standard` `Lit=true` red `PlatformMaterialAsset`, and a from-scratch scene (camera + lit red cube + `DirectionalLightComponent` sun at yaw -0.65/pitch -0.85, matching the fixture writer's `lit` variant) | `2fdd9fc19ee0847c9bc6d793acb6e943e454e0fc9f22ef1e25bc262455a71a4b` | Compiled and linked successfully (proves the light-gathering/shading code itself compiles against a real lit scene); crashes at runtime under Blocker 2 below before any frame is presented. |
+| SC1 | `v03/fixtures/sanity-check/sanity-check-01` | `scripts/build.ps1 -Mode Authored` reusing V5's own already-staged content/catalog byte-for-byte (`v02/cube-test/cache/.../native/dreamcast-build-510d40824e044cd899f2932d3d17eb1d/{content,catalog}`) | `c0438bc60d94bfb2c56631f2b25b8c5dbcbd36ffe51b39cfe818f36dcc9d974e` | Byte-identical to V5 (task5-render-01), which verified successfully on 2026-09-15 with visible red shading. Rebuilt today only to prove the toolchain/Docker/ELF-compile path is still deterministic and unaffected (it is); this ELF also now crashes at runtime under Blocker 2. |
+| D1 | `v03/fixtures/diagnostic/task7-diagnostic-01` | `scripts/build.ps1 -Mode Diagnostic -StaticPose` | `d9063e05f39ded287fbb60e24dcab6bb6c7551f6fd9cf26ae948dcc72cdc06c9` | Diagnostic regression build (Step 5). Runs successfully; unaffected by either blocker. |
+
+## Blocker 1: fresh Authored codegen fails with an undeclared `he_cpp_raise`
+
+Building **either** the `lit` fixture (L1) or demodisc's `cube_test` (CT1)
+through the full graph (`prepare-authored-fixture.ps1 -Build`, which
+regenerates Core C++ fresh) fails identically during the one-time
+`generated_unity.o` compile:
+
+```
+/generated/GeneratedRuntimeCameraComponentDeserializer.cpp: ... error: 'he_cpp_raise' was not declared in this scope
+/generated/GeneratedRuntimeDirectionalLightComponentDeserializer.cpp: ... error: 'he_cpp_raise' was not declared in this scope
+/generated/GeneratedRuntimeMeshComponentDeserializer.cpp: ... error: 'he_cpp_raise' was not declared in this scope
+/generated/runtime/runtime_scene_catalog_manifest.cpp: ... error: 'he_cpp_raise' was not declared in this scope
+/generated/runtime/runtime_code_module_manifest.cpp: ... error: 'he_cpp_raise' was not declared in this scope
+/generated/runtime/runtime_physics3d_scene_feature_manifest.cpp:43:1: error: control reaches end of non-void function [-Werror=return-type]
+cc1plus: all warnings being treated as errors
+make: *** [Makefile:147: /out/obj/generated/generated_unity.o] Error 1
+```
+
+`he_cpp_raise` is not defined anywhere in either generated-core snapshot
+searched (confirmed by grep across all 784/800 files of both the broken
+today's-engine generation and the working 2026-09-15 `d87d222c...` cache,
+which uses a different, working raise mechanism entirely). The failure is not
+specific to lighting: it also hits `GeneratedRuntimeCameraComponentDeserializer.cpp`
+and the code-module/physics3d manifests, which are present and required by
+every authored build regardless of scene content. It reproduces with two
+different fixture identities (`lit`, engine version `0.4.0`; `cube_test`,
+engine version `1.0.0+ec2d7ff8...`) against the same live `EngineRoot`
+(`C:\dev\helworks\helengine`), whose `.git` directory was last written
+2026-09-16 (today) — i.e. it changed since the 2026-09-15 cache that still
+works. This points to a version-skew regression introduced today in the live
+shared engine's codegen emission (now calling a `he_cpp_raise` helper) that
+the pinned isolated generator (`v02/csharpcodegen-source`, unchanged by this
+task) does not yet define. Fixing it requires either re-pinning/patching that
+generator or the live engine change, both outside this task's scope, and no
+generated C++ was edited to work around it. `he_cpp_raise` counts: 86 error
+occurrences in the `cube_test` attempt's `docker-build.log`, matching pattern
+in the `lit` attempt's log.
+
+## Blocker 2: authored ELFs crash under Flycast today regardless of content
+
+Verifying L2 (`verify-authored-scene.ps1 -CaptureFrames "120,180"`) failed:
+`The Lua probe did not reach a terminal result.` Flycast's own log shows the
+runtime never reaches the first vblank probe read (magic stays `0`):
+
+```
+00:01:xxx REIOS: Booting up
+00:02:xxx REIOS: Booting up
+00:03:xxx E[COMMON]: Exception: Fatal: SH4 exception when blocked
+00:03:xxx E[COMMON]: Flycast has stopped: Fatal: SH4 exception when blocked
+```
+
+This is not caused by L2's hand-built content: the byte-identical rebuild SC1
+(reusing V5's own real, previously-staged content) crashes identically, and
+re-running **the original, untouched `v03/v03-task5/helengine_dc.elf` file
+already on disk since Task 5** (no rebuild at all) crashes the same way, both
+hidden (`verify-authored-scene.ps1`) and visible (`launch_in_emulator.ps1
+-Visible`, exit code 0 after ~3.5 s with the identical log line). Task 5's own
+report recorded this exact ELF rendering successfully on 2026-09-15. Diagnostic
+mode (D1, no generated core, no ROMFS) runs perfectly today on the same
+machine with the same Flycast binary (hash-pinned, unchanged) at the same
+moment. This isolates the regression to Authored-mode execution specifically,
+today, on this machine — unrelated to Tasks 1-6's code, to the `lit` fixture,
+or to anything staged by this task. **Consequently no `lights=N` verifier
+output, no captured frame, and no dominant-color/shading measurement could be
+collected for any authored build today**, including the `lit` fixture that is
+this task's primary evidence target.
+
+## Evidence actually collected
+
+| Evidence row | Route | Identity | Observed result | Artifact path |
+|---|---|---|---|---|
+| Lit fixture write | `helengine.dreamcast.fixture.exe --output ... --variant lit` | rebuilt fixture tool | Exit 0; wrote `model=...\lit\assets\models\cube.hasset`, `material=...\lit\assets\materials\cube.helmat`, `scene=...\lit\assets\scenes\startup.helen`. | `v03/fixtures/lit/assets/` |
+| Lit content compiles against a real lit scene | direct `BuildAsync` (scratch driver) | L2 | Compiled and linked; 0 errors; deterministic docker build. Proves `DreamcastRenderManager3D.cpp`'s `gatherLights`, the lit shading pass and the `dc-standard`/`Lit` material path all build correctly against authored content that actually contains a `DirectionalLightComponent`. | `v03/fixtures/lit-direct2/output/authored-d1b154ae99f24c2da1f8a1aeb9168a2e/docker-build.log` |
+| Embedded cooked payload size | `romdisk.img` on disk | L2 | 3.0 KB, well under the 1 MiB budget. | `v03/fixtures/lit-direct2/output/authored-d1b154ae99f24c2da1f8a1aeb9168a2e/romdisk.img` |
+| Resident ELF span | pinned `sh-elf-readelf -l` | L2 | LOAD segments span `0x8c010000`..`0x8c21cb58` = 2,149,208 bytes (~2.05 MiB), well under the 8 MiB budget. | computed from `sh-elf-readelf -l` output, not separately saved to a file |
+| Free heap after startup | n/a | — | **Not measured.** Requires a running authored frame loop, which Blocker 2 prevents for every authored build attempted today. The last pre-regression figure on record (Task 5, 2026-09-15, unrelated build) was 14,545,264 bytes at Core-ready; that number is historical context only, not evidence collected by this task. | — |
+| cube_test fresh build | `prepare-authored-fixture.ps1 -Build` | CT1 | Blocked by Blocker 1 (see above); scene content hash re-synced to `sha256:b908a7c342763d1000bdb51088fe859b5c86f0d77bb04974ea3c6c370014cf21` in `build_config.json` immediately before the attempt, confirmed unchanged after the failed attempt (not a hash race). Not retried a second time per the plan's ruling, since the failure is deterministic, not a race. | `v03/cube-test/graph-1/build/authored-2790ac458d7943bf99d210b64bbb5900/docker-build.log` |
+| Diagnostic regression | `scripts/build.ps1 -Mode Diagnostic -StaticPose`, probe copied to a fresh directory with the pinned `sh-elf-nm` address (`0x8c075fa4`) re-resolved for this ELF | D1 | `status=2 error=0 tris=12 verts=36 clipped=0 nonzero=432607`; captured frame SHA-256 `2c13dc96efabe106aae6beac98426f32eea4d8637e18360a8f7efccbde2ae804` — **exact match** to the pinned regression hash. Unlit diagnostic path fully unchanged by this plan. | `v03/fixtures/diagnostic/probe-01/diagnostic-frame-0090.raw`, `.../diagnostic-probe.csv` |
+| Visible launch | `launch_in_emulator.ps1 -Visible` | D1 (the only build that actually runs today; no authored build could be launched visibly per Blocker 2) | Process owner `DESKTOP-HELENA\Helena`, `MainWindowHandle=1709150` (nonzero), title `Flycast - helengine_dc`, `Responding=True`. Left running for the user. | `v03/fixtures/diagnostic/task7-diagnostic-01/emulator-stdout.log` |
+
+Physical hardware remains untested, as for all prior rows in this document.
