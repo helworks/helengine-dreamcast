@@ -153,4 +153,61 @@ bool makeCameraFromModel(const Matrix4x4& worldFromModel,
     return finite(cameraFromModel);
 }
 
+Vec3 transformDirection(const Matrix4x4& matrix, const Vec3& direction) noexcept {
+    return Vec3{
+        matrix.m[0][0] * direction.x + matrix.m[0][1] * direction.y + matrix.m[0][2] * direction.z,
+        matrix.m[1][0] * direction.x + matrix.m[1][1] * direction.y + matrix.m[1][2] * direction.z,
+        matrix.m[2][0] * direction.x + matrix.m[2][1] * direction.y + matrix.m[2][2] * direction.z,
+    };
+}
+
+bool makeNormalMatrix(const Matrix4x4& worldFromModel, Matrix4x4& normalMatrix) noexcept {
+    if (!validateModelTransform(worldFromModel)) {
+        return false;
+    }
+    const auto& a = worldFromModel.m;
+    normalMatrix = Matrix4x4{{
+        {a[1][1] * a[2][2] - a[1][2] * a[2][1],
+         a[1][2] * a[2][0] - a[1][0] * a[2][2],
+         a[1][0] * a[2][1] - a[1][1] * a[2][0],
+         0.0f},
+        {a[0][2] * a[2][1] - a[0][1] * a[2][2],
+         a[0][0] * a[2][2] - a[0][2] * a[2][0],
+         a[0][1] * a[2][0] - a[0][0] * a[2][1],
+         0.0f},
+        {a[0][1] * a[1][2] - a[0][2] * a[1][1],
+         a[0][2] * a[1][0] - a[0][0] * a[1][2],
+         a[0][0] * a[1][1] - a[0][1] * a[1][0],
+         0.0f},
+        {0.0f, 0.0f, 0.0f, 1.0f},
+    }};
+    return finite(normalMatrix);
+}
+
+Vec3 directionalLightForward(const GeneratedQuaternion& orientation) noexcept {
+    // Engine float4.RotateVector with value = (0, 0, -1), kept in the same
+    // double-precision shape as the engine implementation.
+    const double qx = orientation.x;
+    const double qy = orientation.y;
+    const double qz = orientation.z;
+    const double qw = orientation.w;
+    const double vx = 0.0;
+    const double vy = 0.0;
+    const double vz = -1.0;
+
+    const double tx = 2.0 * (qy * vz - qz * vy);
+    const double ty = 2.0 * (qz * vx - qx * vz);
+    const double tz = 2.0 * (qx * vy - qy * vx);
+
+    const double cx = (qy * tz) - (qz * ty);
+    const double cy = (qz * tx) - (qx * tz);
+    const double cz = (qx * ty) - (qy * tx);
+
+    return Vec3{
+        static_cast<float>(vx + (tx * qw) + cx),
+        static_cast<float>(vy + (ty * qw) + cy),
+        static_cast<float>(vz + (tz * qw) + cz),
+    };
+}
+
 } // namespace helengine::dreamcast

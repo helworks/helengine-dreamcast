@@ -179,6 +179,56 @@ void GeneratedHierarchyMatchesParentTimesChildNativeOrder() {
     }
 }
 
+void NormalMatrixKeepsNormalsPerpendicularUnderNonuniformScale() {
+    using helengine::dreamcast::makeNormalMatrix;
+    // Squash Y to half. A model normal of (0,1,1)/sqrt(2) belongs to a face
+    // whose tangent (0,-1,1) becomes (0,-0.5,1) after the squash.
+    Matrix4x4 worldFromModel = identity();
+    worldFromModel.m[1][1] = 0.5f;
+    Matrix4x4 normalMatrix{};
+    EXPECT(makeNormalMatrix(worldFromModel, normalMatrix));
+
+    const float inverseRootTwo = 0.70710678f;
+    Vec3 worldNormal = helengine::dreamcast::transformDirection(
+        normalMatrix, Vec3{0.0f, inverseRootTwo, inverseRootTwo});
+    const float length = std::sqrt(worldNormal.x * worldNormal.x +
+                                   worldNormal.y * worldNormal.y +
+                                   worldNormal.z * worldNormal.z);
+    worldNormal = Vec3{worldNormal.x / length, worldNormal.y / length, worldNormal.z / length};
+
+    EXPECT(near(worldNormal.x, 0.0f));
+    EXPECT(near(worldNormal.y, 0.89442719f));
+    EXPECT(near(worldNormal.z, 0.44721360f));
+    // Perpendicular to the transformed tangent.
+    const float dot = worldNormal.x * 0.0f + worldNormal.y * -0.5f + worldNormal.z * 1.0f;
+    EXPECT(near(dot, 0.0f));
+}
+
+void NormalMatrixRejectsInvalidModelTransforms() {
+    using helengine::dreamcast::makeNormalMatrix;
+    Matrix4x4 mirrored = identity();
+    mirrored.m[0][0] = -1.0f;
+    Matrix4x4 normalMatrix{};
+    EXPECT(!makeNormalMatrix(mirrored, normalMatrix));
+}
+
+void DirectionalLightForwardMatchesEngineRotation() {
+    using helengine::dreamcast::directionalLightForward;
+    using helengine::dreamcast::GeneratedQuaternion;
+
+    Vec3 identityForward = directionalLightForward(GeneratedQuaternion{0.0f, 0.0f, 0.0f, 1.0f});
+    EXPECT(near(identityForward.x, 0.0f));
+    EXPECT(near(identityForward.y, 0.0f));
+    EXPECT(near(identityForward.z, -1.0f));
+
+    // Ninety degrees about +Y takes -Z to -X.
+    const float halfRootTwo = 0.70710678f;
+    Vec3 yawed = directionalLightForward(GeneratedQuaternion{0.0f, halfRootTwo, 0.0f, halfRootTwo});
+    EXPECT(near(yawed.x, -1.0f));
+    EXPECT(near(yawed.y, 0.0f));
+    EXPECT(near(yawed.z, 0.0f));
+}
+
 } // namespace
 
 int main() {
@@ -188,6 +238,9 @@ int main() {
     ModelTransformRejectsMirrorsAndSingularMatrices();
     CameraRejectsScaleShearAndNonFiniteValues();
     GeneratedHierarchyMatchesParentTimesChildNativeOrder();
+    NormalMatrixKeepsNormalsPerpendicularUnderNonuniformScale();
+    NormalMatrixRejectsInvalidModelTransforms();
+    DirectionalLightForwardMatchesEngineRotation();
     if (failures != 0) {
         std::cerr << failures << " assertion(s) failed\n";
         return 1;
