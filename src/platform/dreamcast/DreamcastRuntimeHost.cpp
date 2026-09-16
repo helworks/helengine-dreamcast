@@ -119,7 +119,7 @@ void resetAuthoredSnapshot() noexcept {
     snapshot.clearArgb = 0u;
     snapshot.checkedFreeHeap = 0u;
     snapshot.loopFrames = 0u;
-    snapshot.reserved = 0u;
+    snapshot.directionalLightCount = 0u;
 }
 
 void setAuthoredStage(std::uint32_t stage) noexcept {
@@ -152,6 +152,7 @@ void publishAuthoredFrame(const AuthoredFrameSummary& summary,
     snapshot.rejectedTriangles = summary.rejectedTriangleCount;
     snapshot.presentedFrames = presentedFrames;
     snapshot.loopFrames = loopFrames;
+    snapshot.directionalLightCount = summary.directionalLightCount;
     snapshot.clearArgb = renderer_detail::packColor(summary.clearColor);
     if (snapshot.firstPresentedFrame == 0u && presentedFrames != 0u) {
         snapshot.firstPresentedFrame = loopFrames;
@@ -493,13 +494,14 @@ int runDreamcastAuthoredScene() noexcept {
             if (!reportedFirstFrame) {
                 const AuthoredFrameSummary& summary = render3D.lastFrameSummary();
                 dbglog(DBG_INFO,
-                       "DreamcastAuthored: first frame cameras=%u drawables=%u triangles=%u clipped=%u rejected=%u clear=%08lx\n",
+                       "DreamcastAuthored: first frame cameras=%u drawables=%u triangles=%u clipped=%u rejected=%u clear=%08lx lights=%u\n",
                        static_cast<unsigned>(summary.cameraCount),
                        static_cast<unsigned>(summary.drawableCount),
                        static_cast<unsigned>(summary.triangleCount),
                        static_cast<unsigned>(summary.clippedTriangleCount),
                        static_cast<unsigned>(summary.rejectedTriangleCount),
-                       static_cast<unsigned long>(renderer_detail::packColor(summary.clearColor)));
+                       static_cast<unsigned long>(renderer_detail::packColor(summary.clearColor)),
+                       static_cast<unsigned>(summary.directionalLightCount));
                 reportedFirstFrame = true;
             }
             if ((authoredFrameCount % 60u) == 0u) {

@@ -64,7 +64,7 @@ struct DreamcastAuthoredSnapshot {
     std::uint32_t clearArgb;
     std::uint32_t checkedFreeHeap;
     std::uint32_t loopFrames;
-    std::uint32_t reserved;
+    std::uint32_t directionalLightCount;
 };
 
 static_assert(sizeof(DreamcastAuthoredSnapshot) == 64,
@@ -75,7 +75,7 @@ extern volatile DreamcastAuthoredSnapshot helengine_dreamcast_authored_snapshot;
 }
 
 constexpr std::uint32_t kDreamcastAuthoredSnapshotMagic = 0x48454153u; // "HEAS"
-constexpr std::uint32_t kDreamcastAuthoredSnapshotVersion = 1u;
+constexpr std::uint32_t kDreamcastAuthoredSnapshotVersion = 2u;
 
 enum DreamcastAuthoredStage : std::uint32_t {
     kAuthoredStageBooting = 0,

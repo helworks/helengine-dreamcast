@@ -2,10 +2,12 @@
 
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
+#include "AmbientLightComponent.hpp"
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "DirectionalLightComponent.hpp"
 #include "DreamcastAuthoredTransform.hpp"
 #include "DreamcastRuntimeMaterial.hpp"
 #include "DreamcastRuntimeModel.hpp"
@@ -15,6 +17,7 @@
 #include "IDrawable3D.hpp"
 #include "IRenderQueue3D.hpp"
 #include "IRenderVisitor3D.hpp"
+#include "LightComponent.hpp"
 #include "ModelAsset.hpp"
 #include "ObjectManager.hpp"
 #include "PlatformMaterialAsset.hpp"
@@ -25,6 +28,7 @@
 #include "runtime/native_list.hpp"
 #include "system/io/stream.hpp"
 
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -104,7 +108,7 @@ public:
         AuthoredDrawState state{};
         state.worldFromModel = matrixFromGenerated(owner->get_WorldTransformMatrix());
         auto* model = dynamic_cast<DreamcastRuntimeModel*>(drawable->get_Model());
-        state.mesh = model != nullptr ? model->meshView() : MeshView{nullptr, 0, nullptr, 0};
+        state.mesh = model != nullptr ? model->meshView() : MeshView{nullptr, 0, nullptr, 0, false};
         ::Array<::RuntimeMaterial*>* materials = drawable->get_Materials();
         auto* material = materials != nullptr && materials->get_Length() > 0
                              ? dynamic_cast<DreamcastRuntimeMaterial*>((*materials)[0])
@@ -112,6 +116,7 @@ public:
         state.hasMaterial = material != nullptr;
         if (material != nullptr) {
             state.materialColor = material->color();
+            state.lit = material->lit();
         }
         record(assembler_.addDrawable(state));
     }
@@ -131,6 +136,67 @@ private:
     std::uint16_t cameraLayerMask_;
     AuthoredFrameStatus status_ = AuthoredFrameStatus::Ok;
 };
+
+/// Reads the enabled scene lights into the generated-header-free light state.
+/// Ambient contributions sum; directional lights keep authored order and are
+/// capped by the assembler, which fails rather than dropping a fifth light.
+AuthoredLightState gatherLights(::ObjectManager& objectManager) {
+    AuthoredLightState lights{};
+    lights.ambient = ColorRgba{0.0f, 0.0f, 0.0f, 1.0f};
+    ::List<::AmbientLightComponent*>* ambientLights = objectManager.get_AmbientLights();
+    if (ambientLights != nullptr) {
+        for (int32_t index = 0; index < ambientLights->get_Count(); ++index) {
+            ::AmbientLightComponent* light = ambientLights->get_Item(index);
+            if (light == nullptr) {
+                continue;
+            }
+            ::Entity* owner = light->get_Parent();
+            if (owner == nullptr || !owner->get_IsHierarchyEnabled()) {
+                continue;
+            }
+            const ::float4 color = light->get_Color();
+            const float intensity = light->get_Intensity();
+            lights.ambient.r += color.X * intensity;
+            lights.ambient.g += color.Y * intensity;
+            lights.ambient.b += color.Z * intensity;
+        }
+    }
+
+    ::List<::DirectionalLightComponent*>* directionalLights = objectManager.get_DirectionalLights();
+    if (directionalLights != nullptr) {
+        for (int32_t index = 0; index < directionalLights->get_Count(); ++index) {
+            ::DirectionalLightComponent* light = directionalLights->get_Item(index);
+            if (light == nullptr) {
+                continue;
+            }
+            ::Entity* owner = light->get_Parent();
+            if (owner == nullptr || !owner->get_IsHierarchyEnabled()) {
+                continue;
+            }
+            if (lights.directionalCount >= kMaxDirectionalLights) {
+                // Report the real count so the assembler fails explicitly.
+                lights.directionalCount = static_cast<std::uint8_t>(kMaxDirectionalLights + 1);
+                return lights;
+            }
+            const ::float4 orientation = owner->get_Orientation();
+            const Vec3 forward = directionalLightForward(
+                GeneratedQuaternion{orientation.X, orientation.Y, orientation.Z, orientation.W});
+            const float lengthSquared =
+                forward.x * forward.x + forward.y * forward.y + forward.z * forward.z;
+            if (!(lengthSquared > 1.0e-12f)) {
+                continue;
+            }
+            const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+            const ::float4 color = light->get_Color();
+            const float intensity = light->get_Intensity();
+            lights.directional[lights.directionalCount] = AuthoredDirectionalLight{
+                Vec3{forward.x * inverseLength, forward.y * inverseLength, forward.z * inverseLength},
+                ColorRgba{color.X * intensity, color.Y * intensity, color.Z * intensity, 1.0f}};
+            ++lights.directionalCount;
+        }
+    }
+    return lights;
+}
 
 AuthoredCameraState gatherCamera(::ICamera& camera) {
     ::Entity* owner = camera.get_Parent();
@@ -178,7 +244,7 @@ void DreamcastRenderManager3D::Draw() {
 
     const ::int2 windowSize = get_MainWindowSize();
     assembler_.begin(static_cast<float>(windowSize.X), static_cast<float>(windowSize.Y));
-    AuthoredFrameStatus status = AuthoredFrameStatus::Ok;
+    AuthoredFrameStatus status = assembler_.setLights(gatherLights(*objectManager));
     for (int32_t index = 0; index < cameraCount && status == AuthoredFrameStatus::Ok; ++index) {
         ::ICamera* camera = cameras->get_Item(index);
         if (camera == nullptr) {
