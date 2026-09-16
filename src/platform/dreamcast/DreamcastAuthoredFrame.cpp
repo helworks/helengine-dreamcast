@@ -24,6 +24,17 @@ bool fullViewport(const AuthoredViewport& viewport) noexcept {
            approximately(viewport.width, 1.0f) && approximately(viewport.height, 1.0f);
 }
 
+bool finiteVec3(const Vec3& value) noexcept {
+    return finite(value.x) && finite(value.y) && finite(value.z);
+}
+
+float clampUnit(float value) noexcept {
+    if (!std::isfinite(value) || value <= 0.0f) {
+        return 0.0f;
+    }
+    return value >= 1.0f ? 1.0f : value;
+}
+
 } // namespace
 
 const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept {
@@ -52,6 +63,12 @@ const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept {
         return "invalid-material";
     case AuthoredFrameStatus::InvalidModelTransform:
         return "invalid-model-transform";
+    case AuthoredFrameStatus::TooManyDirectionalLights:
+        return "too-many-directional-lights";
+    case AuthoredFrameStatus::InvalidLight:
+        return "invalid-light";
+    case AuthoredFrameStatus::LitMeshWithoutNormals:
+        return "lit-mesh-without-normals";
     case AuthoredFrameStatus::GeometryFailed:
         return "geometry-failed";
     case AuthoredFrameStatus::PresentFailed:
@@ -72,6 +89,7 @@ void AuthoredFrameAssembler::begin(float viewportWidth, float viewportHeight) no
     drawableValid_ = false;
     firstFailure_ = AuthoredFrameStatus::Ok;
     summary_ = AuthoredFrameSummary{};
+    lights_ = AuthoredLightState{};
     resetGeometryFrame(*frame_);
 }
 
@@ -110,6 +128,36 @@ AuthoredFrameStatus AuthoredFrameAssembler::setCamera(const AuthoredCameraState&
     return AuthoredFrameStatus::Ok;
 }
 
+AuthoredFrameStatus AuthoredFrameAssembler::setLights(const AuthoredLightState& lights) noexcept {
+    const auto fail = [this](AuthoredFrameStatus status) noexcept {
+        if (firstFailure_ == AuthoredFrameStatus::Ok) {
+            firstFailure_ = status;
+        }
+        return status;
+    };
+    if (!began_) {
+        return fail(AuthoredFrameStatus::NotStarted);
+    }
+    if (lights.directionalCount > kMaxDirectionalLights) {
+        return fail(AuthoredFrameStatus::TooManyDirectionalLights);
+    }
+    if (!finiteColor(lights.ambient)) {
+        return fail(AuthoredFrameStatus::InvalidLight);
+    }
+    for (std::uint8_t index = 0; index < lights.directionalCount; ++index) {
+        const AuthoredDirectionalLight& light = lights.directional[index];
+        const float lengthSquared = light.direction.x * light.direction.x +
+                                    light.direction.y * light.direction.y +
+                                    light.direction.z * light.direction.z;
+        if (!finiteColor(light.color) || !finiteVec3(light.direction) || lengthSquared <= 1.0e-8f) {
+            return fail(AuthoredFrameStatus::InvalidLight);
+        }
+    }
+    lights_ = lights;
+    summary_.directionalLightCount = lights.directionalCount;
+    return AuthoredFrameStatus::Ok;
+}
+
 AuthoredFrameStatus AuthoredFrameAssembler::addDrawable(const AuthoredDrawState& drawable) noexcept {
     const auto fail = [this](AuthoredFrameStatus status) noexcept {
         if (firstFailure_ == AuthoredFrameStatus::Ok) {
@@ -136,11 +184,15 @@ AuthoredFrameStatus AuthoredFrameAssembler::addDrawable(const AuthoredDrawState&
     if (!validateModelTransform(drawable.worldFromModel)) {
         return fail(AuthoredFrameStatus::InvalidModelTransform);
     }
+    if (drawable.lit && !drawable.mesh.hasNormals) {
+        return fail(AuthoredFrameStatus::LitMeshWithoutNormals);
+    }
     for (std::uint16_t index = 0; index < drawable.mesh.vertexCount; ++index) {
         coloredVertices_[index] = SourceVertex{drawable.mesh.vertices[index].position,
                                                drawable.materialColor,
                                                drawable.mesh.vertices[index].normal};
     }
+    summary_.lit = drawable.lit;
     drawable_ = drawable;
     drawable_.mesh.vertices = coloredVertices_;
     drawableValid_ = true;
@@ -165,6 +217,44 @@ AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) no
     Matrix4x4 cameraFromModel{};
     if (!makeCameraFromModel(drawable_.worldFromModel, camera_.worldFromCamera, cameraFromModel)) {
         return AuthoredFrameStatus::InvalidModelTransform;
+    }
+    if (drawable_.lit) {
+        Matrix4x4 normalMatrix{};
+        if (!makeNormalMatrix(drawable_.worldFromModel, normalMatrix)) {
+            return AuthoredFrameStatus::InvalidModelTransform;
+        }
+        for (std::uint16_t index = 0; index < drawable_.mesh.vertexCount; ++index) {
+            const Vec3 worldNormal = transformDirection(normalMatrix, coloredVertices_[index].normal);
+            const float lengthSquared = worldNormal.x * worldNormal.x +
+                                        worldNormal.y * worldNormal.y +
+                                        worldNormal.z * worldNormal.z;
+            float diffuseRed = lights_.ambient.r;
+            float diffuseGreen = lights_.ambient.g;
+            float diffuseBlue = lights_.ambient.b;
+            if (lengthSquared > 1.0e-12f) {
+                const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+                const Vec3 unitNormal{worldNormal.x * inverseLength,
+                                      worldNormal.y * inverseLength,
+                                      worldNormal.z * inverseLength};
+                for (std::uint8_t light = 0; light < lights_.directionalCount; ++light) {
+                    const AuthoredDirectionalLight& source = lights_.directional[light];
+                    const float lambert = -(unitNormal.x * source.direction.x +
+                                            unitNormal.y * source.direction.y +
+                                            unitNormal.z * source.direction.z);
+                    if (lambert <= 0.0f) {
+                        continue;
+                    }
+                    diffuseRed += source.color.r * lambert;
+                    diffuseGreen += source.color.g * lambert;
+                    diffuseBlue += source.color.b * lambert;
+                }
+            }
+            ColorRgba& color = coloredVertices_[index].color;
+            color = ColorRgba{clampUnit(drawable_.materialColor.r * diffuseRed),
+                              clampUnit(drawable_.materialColor.g * diffuseGreen),
+                              clampUnit(drawable_.materialColor.b * diffuseBlue),
+                              1.0f};
+        }
     }
     const GeometryConfig config{
         viewportWidth_,

@@ -79,7 +79,27 @@ AuthoredCameraState validCamera() {
 AuthoredDrawState validDrawable(float z = -6.0f) {
     // The generated camera looks along -Z, so a model at negative Z is in front.
     return AuthoredDrawState{translation(0.0f, 0.0f, z), cubeMesh(), true,
-                             ColorRgba{0.8f, 0.1f, 0.1f, 1.0f}};
+                             ColorRgba{0.8f, 0.1f, 0.1f, 1.0f}, false};
+}
+
+AuthoredLightState whiteLightFromPositiveZ(float ambientLevel = 0.0f) {
+    // Travels along -Z, so a +Z facing normal is fully lit.
+    AuthoredLightState lights{};
+    lights.ambient = ColorRgba{ambientLevel, ambientLevel, ambientLevel, 1.0f};
+    lights.directionalCount = 1;
+    lights.directional[0] = AuthoredDirectionalLight{{0.0f, 0.0f, -1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}};
+    return lights;
+}
+
+/// One quad facing +Z and one facing -Z, both with explicit normals.
+AuthoredDrawState twoFacingDrawable(const SourceVertex* vertices, const TriangleIndex* triangles, bool lit) {
+    AuthoredDrawState drawable{};
+    drawable.worldFromModel = translation(0.0f, 0.0f, -6.0f);
+    drawable.mesh = MeshView{vertices, 6, triangles, 2, true};
+    drawable.hasMaterial = true;
+    drawable.materialColor = ColorRgba{1.0f, 0.5f, 0.25f, 1.0f};
+    drawable.lit = lit;
+    return drawable;
 }
 
 void OneCameraOneDrawableDeliversAuthoredStateExactlyOnce() {
@@ -123,7 +143,7 @@ void ProjectionUsesFortyFiveDegreeVerticalFovAndPositiveDepth() {
     const TriangleIndex triangles[1] = {{0, 1, 2}};
     AuthoredDrawState drawable{translation(0.0f, 0.0f, -6.0f),
                                MeshView{vertices, 3, triangles, 1, false}, true,
-                               ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}};
+                               ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}, false};
     assembler.begin(640.0f, 480.0f);
     EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
     EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
@@ -150,7 +170,7 @@ void CameraTranslationMovesProjectionOpposite() {
     const TriangleIndex triangles[1] = {{0, 1, 2}};
     AuthoredDrawState drawable{translation(0.0f, 0.0f, -6.0f),
                                MeshView{vertices, 3, triangles, 1, false}, true,
-                               ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}};
+                               ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}, false};
     assembler.begin(640.0f, 480.0f);
     EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::Ok);
     EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
@@ -308,6 +328,214 @@ void SinkRejectionIsReportedAndFrameIsNotRepeated() {
     EXPECT(sink.presentCount == 1);
 }
 
+void LitVertexFacingLightGetsFullLightColor() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    const SourceVertex vertices[3] = {
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+    };
+    const TriangleIndex triangles[1] = {{0, 1, 2}};
+    AuthoredDrawState drawable{};
+    drawable.worldFromModel = translation(0.0f, 0.0f, -6.0f);
+    drawable.mesh = MeshView{vertices, 3, triangles, 1, true};
+    drawable.hasMaterial = true;
+    drawable.materialColor = ColorRgba{1.0f, 0.5f, 0.25f, 1.0f};
+    drawable.lit = true;
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(whiteLightFromPositiveZ()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+
+    const ProjectedVertex& vertex = assembler.geometry().triangles[0].vertices[0];
+    EXPECT(near(vertex.color.r, 1.0f));
+    EXPECT(near(vertex.color.g, 0.5f));
+    EXPECT(near(vertex.color.b, 0.25f));
+    EXPECT(assembler.summary().directionalLightCount == 1);
+    EXPECT(assembler.summary().lit);
+}
+
+void LitVertexFacingAwayGetsAmbientOnly() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    // Normals point away from the light (-Z), so only ambient 0.25 applies.
+    const SourceVertex vertices[3] = {
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+    };
+    const TriangleIndex triangles[1] = {{0, 1, 2}};
+    AuthoredDrawState drawable{};
+    drawable.worldFromModel = translation(0.0f, 0.0f, -6.0f);
+    drawable.mesh = MeshView{vertices, 3, triangles, 1, true};
+    drawable.hasMaterial = true;
+    drawable.materialColor = ColorRgba{1.0f, 0.5f, 0.25f, 1.0f};
+    drawable.lit = true;
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(whiteLightFromPositiveZ(0.25f)) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+
+    const ProjectedVertex& vertex = assembler.geometry().triangles[0].vertices[0];
+    EXPECT(near(vertex.color.r, 0.25f));
+    EXPECT(near(vertex.color.g, 0.125f));
+    EXPECT(near(vertex.color.b, 0.0625f));
+}
+
+void LitVertexFacingAwayWithoutAmbientIsBlack() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    const SourceVertex vertices[3] = {
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+    };
+    const TriangleIndex triangles[1] = {{0, 1, 2}};
+    AuthoredDrawState drawable{};
+    drawable.worldFromModel = translation(0.0f, 0.0f, -6.0f);
+    drawable.mesh = MeshView{vertices, 3, triangles, 1, true};
+    drawable.hasMaterial = true;
+    drawable.materialColor = ColorRgba{1.0f, 0.5f, 0.25f, 1.0f};
+    drawable.lit = true;
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(whiteLightFromPositiveZ()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+
+    const ProjectedVertex& vertex = assembler.geometry().triangles[0].vertices[0];
+    EXPECT(near(vertex.color.r, 0.0f));
+    EXPECT(near(vertex.color.g, 0.0f));
+    EXPECT(near(vertex.color.b, 0.0f));
+}
+
+void LitColorIsClampedToOne() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    const SourceVertex vertices[3] = {
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+    };
+    const TriangleIndex triangles[1] = {{0, 1, 2}};
+    AuthoredDrawState drawable{};
+    drawable.worldFromModel = translation(0.0f, 0.0f, -6.0f);
+    drawable.mesh = MeshView{vertices, 3, triangles, 1, true};
+    drawable.hasMaterial = true;
+    drawable.materialColor = ColorRgba{1.0f, 1.0f, 1.0f, 1.0f};
+    drawable.lit = true;
+
+    assembler.begin(640.0f, 480.0f);
+    // Ambient 0.5 plus a full-strength light would reach 1.5 without clamping.
+    EXPECT(assembler.setLights(whiteLightFromPositiveZ(0.5f)) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+
+    const ProjectedVertex& vertex = assembler.geometry().triangles[0].vertices[0];
+    EXPECT(near(vertex.color.r, 1.0f));
+    EXPECT(near(vertex.color.a, 1.0f));
+}
+
+void UnlitMaterialIgnoresLights() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(whiteLightFromPositiveZ(0.25f)) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    // validDrawable() has no normals and lit defaults to false.
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+
+    EXPECT(near(sink.lastFirstColor.r, 0.8f));
+    EXPECT(near(sink.lastFirstColor.g, 0.1f));
+    EXPECT(near(sink.lastFirstColor.b, 0.1f));
+    EXPECT(!assembler.summary().lit);
+}
+
+void LitMeshWithoutNormalsFailsBeforePresentation() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    AuthoredDrawState drawable = validDrawable();
+    drawable.lit = true;
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(whiteLightFromPositiveZ()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::LitMeshWithoutNormals);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::LitMeshWithoutNormals);
+    EXPECT(sink.presentCount == 0);
+}
+
+void FiveDirectionalLightsFail() {
+    AuthoredFrameAssembler assembler;
+    AuthoredLightState lights = whiteLightFromPositiveZ();
+    lights.directionalCount = 5;
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(lights) == AuthoredFrameStatus::TooManyDirectionalLights);
+
+    RecordingSink sink;
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::TooManyDirectionalLights);
+    EXPECT(sink.presentCount == 0);
+}
+
+void NonFiniteLightStateFails() {
+    AuthoredFrameAssembler assembler;
+    AuthoredLightState lights = whiteLightFromPositiveZ();
+    lights.directional[0].color.g = std::nanf("");
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(lights) == AuthoredFrameStatus::InvalidLight);
+
+    AuthoredFrameAssembler second;
+    AuthoredLightState zeroDirection = whiteLightFromPositiveZ();
+    zeroDirection.directional[0].direction = Vec3{0.0f, 0.0f, 0.0f};
+    second.begin(640.0f, 480.0f);
+    EXPECT(second.setLights(zeroDirection) == AuthoredFrameStatus::InvalidLight);
+}
+
+void LitShadingSurvivesNonuniformScale() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    // Two quads: the first faces +Z (lit), the second faces -Z (unlit).
+    const SourceVertex vertices[6] = {
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-1.0f, -1.0f, -0.5f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+        {{1.0f, -1.0f, -0.5f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+        {{0.0f, 1.0f, -0.5f}, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, -1.0f}},
+    };
+    const TriangleIndex triangles[2] = {{0, 1, 2}, {3, 4, 5}};
+    AuthoredDrawState drawable = twoFacingDrawable(vertices, triangles, true);
+    // Nonuniform scale must not tilt the face normals.
+    drawable.worldFromModel.m[1][1] = 1.25f;
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setLights(whiteLightFromPositiveZ()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+
+    bool sawLit = false;
+    bool sawDark = false;
+    const GeometryFrame& frame = assembler.geometry();
+    for (std::uint16_t i = 0; i < frame.triangleCount; ++i) {
+        const float red = frame.triangles[i].vertices[0].color.r;
+        sawLit = sawLit || near(red, 1.0f);
+        sawDark = sawDark || near(red, 0.0f);
+    }
+    EXPECT(sawLit);
+    EXPECT(sawDark);
+}
+
 } // namespace
 
 int main() {
@@ -318,6 +546,15 @@ int main() {
     InvalidCameraMaterialAndTransformsFailBeforePackets();
     FullyClippedDrawableIsAValidClearOnlyFrame();
     SinkRejectionIsReportedAndFrameIsNotRepeated();
+    LitVertexFacingLightGetsFullLightColor();
+    LitVertexFacingAwayGetsAmbientOnly();
+    LitVertexFacingAwayWithoutAmbientIsBlack();
+    LitColorIsClampedToOne();
+    UnlitMaterialIgnoresLights();
+    LitMeshWithoutNormalsFailsBeforePresentation();
+    FiveDirectionalLightsFail();
+    NonFiniteLightStateFails();
+    LitShadingSurvivesNonuniformScale();
     if (failures != 0) {
         std::cerr << failures << " assertion(s) failed\n";
         return 1;

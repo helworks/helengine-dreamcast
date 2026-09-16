@@ -20,6 +20,22 @@ struct AuthoredViewport {
     float height;
 };
 
+/// Maximum simultaneously enabled directional lights for Dreamcast v0.3.
+constexpr std::uint8_t kMaxDirectionalLights = 4;
+
+/// One enabled directional light, resolved to world space by the caller.
+struct AuthoredDirectionalLight {
+    Vec3 direction;   // normalized world direction the light travels
+    ColorRgba color;  // rgb premultiplied by intensity; alpha unused
+};
+
+/// Scene lighting for one frame. Carries no generated headers.
+struct AuthoredLightState {
+    ColorRgba ambient;
+    std::uint8_t directionalCount;
+    AuthoredDirectionalLight directional[kMaxDirectionalLights];
+};
+
 /// Camera state gathered from the generated camera for one frame. This type
 /// carries no generated headers so the submission contract stays host-testable.
 struct AuthoredCameraState {
@@ -41,6 +57,8 @@ struct AuthoredDrawState {
     MeshView mesh;
     bool hasMaterial;
     ColorRgba materialColor;
+    // True when the bound material asks for lighting; requires mesh.hasNormals.
+    bool lit;
 };
 
 enum class AuthoredFrameStatus : std::uint8_t {
@@ -56,6 +74,9 @@ enum class AuthoredFrameStatus : std::uint8_t {
     InvalidMesh,
     InvalidMaterial,
     InvalidModelTransform,
+    TooManyDirectionalLights,
+    InvalidLight,
+    LitMeshWithoutNormals,
     GeometryFailed,
     PresentFailed,
 };
@@ -66,6 +87,8 @@ const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept;
 struct AuthoredFrameSummary {
     std::uint8_t cameraCount;
     std::uint8_t drawableCount;
+    std::uint8_t directionalLightCount;
+    bool lit;
     std::uint16_t triangleCount;
     std::uint16_t clippedTriangleCount;
     std::uint16_t rejectedTriangleCount;
@@ -90,6 +113,7 @@ public:
 
     void begin(float viewportWidth, float viewportHeight) noexcept;
     AuthoredFrameStatus setCamera(const AuthoredCameraState& camera) noexcept;
+    AuthoredFrameStatus setLights(const AuthoredLightState& lights) noexcept;
     AuthoredFrameStatus addDrawable(const AuthoredDrawState& drawable) noexcept;
     AuthoredFrameStatus present(IAuthoredFrameSink& sink) noexcept;
 
@@ -102,6 +126,7 @@ private:
     std::unique_ptr<GeometryFrame> frame_;
     SourceVertex coloredVertices_[kMaxVertices]{};
     AuthoredCameraState camera_{};
+    AuthoredLightState lights_{};
     AuthoredDrawState drawable_{};
     AuthoredFrameSummary summary_{};
     float viewportWidth_ = 0.0f;
