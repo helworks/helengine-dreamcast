@@ -76,6 +76,17 @@ void validateAsset(const ::ModelAsset& asset, std::uint32_t indexCount) {
             throw std::invalid_argument("Dreamcast model positions must be finite.");
         }
     }
+    if (asset.Normals != nullptr && asset.Normals->get_Length() != 0) {
+        if (asset.Normals->get_Length() != asset.Positions->get_Length()) {
+            throw std::invalid_argument("Dreamcast model normal count must match its position count.");
+        }
+        for (int32_t index = 0; index < asset.Normals->get_Length(); ++index) {
+            const ::float3& normal = (*asset.Normals)[index];
+            if (!finite(normal.X) || !finite(normal.Y) || !finite(normal.Z)) {
+                throw std::invalid_argument("Dreamcast model normals must be finite.");
+            }
+        }
+    }
 }
 
 std::uint32_t readIndex(const ::ModelAsset& asset, std::uint32_t index) noexcept {
@@ -105,6 +116,7 @@ void DreamcastRuntimeModel::Dispose() {
     triangles_ = nullptr;
     vertexCount_ = 0;
     triangleCount_ = 0;
+    hasNormals_ = false;
     ::ModelAsset* rawAsset = get_RawModelAsset();
     if (rawAsset != nullptr) {
         if (rawAsset->FormerAuthoringAssetIds != nullptr &&
@@ -117,7 +129,7 @@ void DreamcastRuntimeModel::Dispose() {
 }
 
 MeshView DreamcastRuntimeModel::meshView() const noexcept {
-    return MeshView{vertices_, vertexCount_, triangles_, triangleCount_};
+    return MeshView{vertices_, vertexCount_, triangles_, triangleCount_, hasNormals_};
 }
 
 DreamcastRuntimeModel* DreamcastRuntimeModel::CreateOwned(::ModelAsset* asset) {
@@ -142,10 +154,18 @@ DreamcastRuntimeModel* DreamcastRuntimeModel::CreateOwned(::ModelAsset* asset) {
         runtime->triangleCount_ = static_cast<std::uint16_t>(indexCount / 3);
         runtime->vertices_ = new SourceVertex[runtime->vertexCount_]();
         runtime->triangles_ = new TriangleIndex[runtime->triangleCount_]();
+        runtime->hasNormals_ = assetLease.value->Normals != nullptr &&
+                               assetLease.value->Normals->get_Length() == runtime->vertexCount_;
         for (std::uint16_t index = 0; index < runtime->vertexCount_; ++index) {
             const ::float3& position = (*assetLease.value->Positions)[index];
-            runtime->vertices_[index] = SourceVertex{{position.X, position.Y, position.Z},
-                                                      {1.0f, 1.0f, 1.0f, 1.0f}};
+            SourceVertex vertex{{position.X, position.Y, position.Z},
+                                {1.0f, 1.0f, 1.0f, 1.0f},
+                                {0.0f, 0.0f, 0.0f}};
+            if (runtime->hasNormals_) {
+                const ::float3& normal = (*assetLease.value->Normals)[index];
+                vertex.normal = Vec3{normal.X, normal.Y, normal.Z};
+            }
+            runtime->vertices_[index] = vertex;
         }
         for (std::uint32_t index = 0; index < indexCount; ++index) {
             const std::uint32_t value = readIndex(*assetLease.value, index);

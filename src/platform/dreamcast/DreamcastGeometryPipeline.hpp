@@ -20,6 +20,9 @@ struct ColorRgba {
 struct SourceVertex {
     Vec3 position;
     ColorRgba color;
+    // Model-space normal. Declared last so existing position/color aggregate
+    // initializers keep compiling and zero-fill it; only lit draws read it.
+    Vec3 normal;
 };
 
 struct TriangleIndex {
@@ -33,6 +36,8 @@ struct MeshView {
     std::uint16_t vertexCount;
     const TriangleIndex* triangles;
     std::uint16_t triangleCount;
+    // True only when every vertex carries an authored model-space normal.
+    bool hasNormals;
 };
 
 // Row-major storage. Transform with cameraPoint = cameraFromModel * [x,y,z,1].

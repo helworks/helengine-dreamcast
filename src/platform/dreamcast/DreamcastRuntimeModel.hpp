@@ -29,6 +29,7 @@ private:
     TriangleIndex* triangles_ = nullptr;
     std::uint16_t vertexCount_ = 0;
     std::uint16_t triangleCount_ = 0;
+    bool hasNormals_ = false;
     bool disposed_ = false;
 };
 
