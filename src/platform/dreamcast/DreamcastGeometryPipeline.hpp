@@ -20,8 +20,8 @@ struct ColorRgba {
 struct SourceVertex {
     Vec3 position;
     ColorRgba color;
-    // Model-space normal. Declared last so existing position/color aggregate
-    // initializers keep compiling and zero-fill it; only lit draws read it.
+    // Model-space normal. Declared last to preserve positional meaning of existing
+    // members; all positional initializers in the tree must add the trailing value.
     Vec3 normal;
 };
 

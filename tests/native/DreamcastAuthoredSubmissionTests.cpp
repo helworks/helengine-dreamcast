@@ -116,13 +116,13 @@ void ProjectionUsesFortyFiveDegreeVerticalFovAndPositiveDepth() {
     RecordingSink sink;
     // A single triangle with one vertex one unit above the axis, six units ahead.
     const SourceVertex vertices[3] = {
-        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
-        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
-        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
     };
     const TriangleIndex triangles[1] = {{0, 1, 2}};
     AuthoredDrawState drawable{translation(0.0f, 0.0f, -6.0f),
-                               MeshView{vertices, 3, triangles, 1}, true,
+                               MeshView{vertices, 3, triangles, 1, false}, true,
                                ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}};
     assembler.begin(640.0f, 480.0f);
     EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
@@ -143,13 +143,13 @@ void CameraTranslationMovesProjectionOpposite() {
     AuthoredCameraState camera = validCamera();
     camera.worldFromCamera = translation(1.0f, 0.0f, 0.0f);
     const SourceVertex vertices[3] = {
-        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
-        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
-        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, {}},
     };
     const TriangleIndex triangles[1] = {{0, 1, 2}};
     AuthoredDrawState drawable{translation(0.0f, 0.0f, -6.0f),
-                               MeshView{vertices, 3, triangles, 1}, true,
+                               MeshView{vertices, 3, triangles, 1, false}, true,
                                ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}};
     assembler.begin(640.0f, 480.0f);
     EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::Ok);

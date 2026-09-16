@@ -138,7 +138,8 @@ AuthoredFrameStatus AuthoredFrameAssembler::addDrawable(const AuthoredDrawState&
     }
     for (std::uint16_t index = 0; index < drawable.mesh.vertexCount; ++index) {
         coloredVertices_[index] = SourceVertex{drawable.mesh.vertices[index].position,
-                                               drawable.materialColor};
+                                               drawable.materialColor,
+                                               drawable.mesh.vertices[index].normal};
     }
     drawable_ = drawable;
     drawable_.mesh.vertices = coloredVertices_;

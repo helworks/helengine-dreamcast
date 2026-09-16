@@ -45,7 +45,7 @@ GeometryConfig defaultConfig() {
 
 MeshView oneTriangle(const SourceVertex (&vertices)[3]) {
     static const TriangleIndex indices{0, 1, 2};
-    return MeshView{vertices, 3, &indices, 1};
+    return MeshView{vertices, 3, &indices, 1, false};
 }
 
 bool finiteTriangle(const helengine::dreamcast::ProjectedTriangle& triangle) {
@@ -63,9 +63,9 @@ bool finiteTriangle(const helengine::dreamcast::ProjectedTriangle& triangle) {
 void CenteredTriangleProjectsToViewportCenter() {
     constexpr const char* testName = "CenteredTriangleProjectsToViewportCenter";
     const SourceVertex vertices[] = {
-        {{-1.0f, -1.0f, 4.0f}, kWhite},
-        {{1.0f, -1.0f, 4.0f}, kWhite},
-        {{0.0f, 0.0f, 4.0f}, kWhite},
+        {{-1.0f, -1.0f, 4.0f}, kWhite, {}},
+        {{1.0f, -1.0f, 4.0f}, kWhite, {}},
+        {{0.0f, 0.0f, 4.0f}, kWhite, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -81,14 +81,14 @@ void CenteredTriangleProjectsToViewportCenter() {
 void FartherDepthProducesSmallerQ() {
     constexpr const char* testName = "FartherDepthProducesSmallerQ";
     const SourceVertex nearVertices[] = {
-        {{-1.0f, -1.0f, 4.0f}, kWhite},
-        {{1.0f, -1.0f, 4.0f}, kWhite},
-        {{0.0f, 1.0f, 4.0f}, kWhite},
+        {{-1.0f, -1.0f, 4.0f}, kWhite, {}},
+        {{1.0f, -1.0f, 4.0f}, kWhite, {}},
+        {{0.0f, 1.0f, 4.0f}, kWhite, {}},
     };
     const SourceVertex farVertices[] = {
-        {{-1.0f, -1.0f, 8.0f}, kWhite},
-        {{1.0f, -1.0f, 8.0f}, kWhite},
-        {{0.0f, 1.0f, 8.0f}, kWhite},
+        {{-1.0f, -1.0f, 8.0f}, kWhite, {}},
+        {{1.0f, -1.0f, 8.0f}, kWhite, {}},
+        {{0.0f, 1.0f, 8.0f}, kWhite, {}},
     };
     GeometryFrame nearFrame{};
     GeometryFrame farFrame{};
@@ -106,9 +106,9 @@ void FartherDepthProducesSmallerQ() {
 void OneOutsideNearPlaneEmitsTwoTriangles() {
     constexpr const char* testName = "OneOutsideNearPlaneEmitsTwoTriangles";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 0.25f}, kWhite},
-        {{0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, kWhite},
+        {{-0.5f, -0.5f, 0.25f}, kWhite, {}},
+        {{0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, kWhite, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -126,9 +126,9 @@ void OneOutsideNearPlaneEmitsTwoTriangles() {
 void TwoOutsideNearPlaneEmitsOneTriangle() {
     constexpr const char* testName = "TwoOutsideNearPlaneEmitsOneTriangle";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 0.25f}, kWhite},
-        {{0.5f, -0.5f, 0.25f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, kWhite},
+        {{-0.5f, -0.5f, 0.25f}, kWhite, {}},
+        {{0.5f, -0.5f, 0.25f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, kWhite, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -144,9 +144,9 @@ void TwoOutsideNearPlaneEmitsOneTriangle() {
 void FullyBehindNearPlaneIsRejected() {
     constexpr const char* testName = "FullyBehindNearPlaneIsRejected";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 0.25f}, kWhite},
-        {{0.5f, -0.5f, 0.25f}, kWhite},
-        {{0.0f, 0.5f, 0.25f}, kWhite},
+        {{-0.5f, -0.5f, 0.25f}, kWhite, {}},
+        {{0.5f, -0.5f, 0.25f}, kWhite, {}},
+        {{0.0f, 0.5f, 0.25f}, kWhite, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -161,9 +161,9 @@ void FullyBehindNearPlaneIsRejected() {
 void OnPlaneVertexDoesNotDuplicate() {
     constexpr const char* testName = "OnPlaneVertexDoesNotDuplicate";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 0.5f}, kWhite},
-        {{0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, kWhite},
+        {{-0.5f, -0.5f, 0.5f}, kWhite, {}},
+        {{0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, kWhite, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -178,9 +178,9 @@ void OnPlaneVertexDoesNotDuplicate() {
 void DegenerateProjectedTriangleIsRejected() {
     constexpr const char* testName = "DegenerateProjectedTriangleIsRejected";
     const SourceVertex vertices[] = {
-        {{0.0f, 0.0f, 2.0f}, kWhite},
-        {{1.0f, 0.0f, 2.0f}, kWhite},
-        {{2.0f, 0.0f, 2.0f}, kWhite},
+        {{0.0f, 0.0f, 2.0f}, kWhite, {}},
+        {{1.0f, 0.0f, 2.0f}, kWhite, {}},
+        {{2.0f, 0.0f, 2.0f}, kWhite, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -194,9 +194,9 @@ void DegenerateProjectedTriangleIsRejected() {
 void NonFiniteInputIsReported() {
     constexpr const char* testName = "NonFiniteInputIsReported";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, {NAN, 1.0f, 1.0f, 1.0f}},
+        {{-0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, {NAN, 1.0f, 1.0f, 1.0f}, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -211,9 +211,9 @@ void NonFiniteInputIsReported() {
 void OffscreenProjectionRemainsFinite() {
     constexpr const char* testName = "OffscreenProjectionRemainsFinite";
     const SourceVertex vertices[] = {
-        {{-1000.0f, -1000.0f, 2.0f}, kWhite},
-        {{1000.0f, -1000.0f, 2.0f}, kWhite},
-        {{0.0f, 1000.0f, 2.0f}, kWhite},
+        {{-1000.0f, -1000.0f, 2.0f}, kWhite, {}},
+        {{1000.0f, -1000.0f, 2.0f}, kWhite, {}},
+        {{0.0f, 1000.0f, 2.0f}, kWhite, {}},
     };
     GeometryFrame frame{};
     const GeometryStatus status = helengine::dreamcast::processGeometry(
@@ -229,15 +229,15 @@ void OffscreenProjectionRemainsFinite() {
 void InputTriangleCapacityIsRejected() {
     constexpr const char* testName = "InputTriangleCapacityIsRejected";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, kWhite},
+        {{-0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, kWhite, {}},
     };
     TriangleIndex triangles[129]{};
     for (auto& triangle : triangles) {
         triangle = TriangleIndex{0, 1, 2};
     }
-    const MeshView mesh{vertices, 3, triangles, 129};
+    const MeshView mesh{vertices, 3, triangles, 129, false};
     GeometryFrame frame{};
     frame.triangleCount = 99;
     frame.overflow = false;
@@ -268,7 +268,7 @@ void CubeMeshReportsExpectedCountsAndValidIndices() {
 
 void NullMeshPointerIsReported() {
     constexpr const char* testName = "NullMeshPointerIsReported";
-    const MeshView mesh{nullptr, 3, nullptr, 1};
+    const MeshView mesh{nullptr, 3, nullptr, 1, false};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -279,7 +279,7 @@ void NullMeshPointerIsReported() {
 void NullVertexPointerIsReported() {
     constexpr const char* testName = "NullVertexPointerIsReported";
     const TriangleIndex triangle{0, 0, 0};
-    const MeshView mesh{nullptr, 3, &triangle, 1};
+    const MeshView mesh{nullptr, 3, &triangle, 1, false};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -289,8 +289,8 @@ void NullVertexPointerIsReported() {
 
 void NullTrianglePointerIsReported() {
     constexpr const char* testName = "NullTrianglePointerIsReported";
-    const SourceVertex vertex{{0.0f, 0.0f, 2.0f}, kWhite};
-    const MeshView mesh{&vertex, 1, nullptr, 1};
+    const SourceVertex vertex{{0.0f, 0.0f, 2.0f}, kWhite, {}};
+    const MeshView mesh{&vertex, 1, nullptr, 1, false};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -301,12 +301,12 @@ void NullTrianglePointerIsReported() {
 void OutOfRangeIndexIsReported() {
     constexpr const char* testName = "OutOfRangeIndexIsReported";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, kWhite},
+        {{-0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, kWhite, {}},
     };
     const TriangleIndex triangle{0, 1, 3};
-    const MeshView mesh{vertices, 3, &triangle, 1};
+    const MeshView mesh{vertices, 3, &triangle, 1, false};
     GeometryFrame frame{};
     EXPECT(helengine::dreamcast::processGeometry(
                 mesh, identityMatrix(), defaultConfig(), frame) ==
@@ -327,10 +327,10 @@ void NearPlaneTopologyHoldsForVertexPermutations() {
     };
     for (const auto& permutation : permutations) {
         SourceVertex oneOutside[3] = {
-            {positions[0], kWhite}, {positions[1], kWhite}, {positions[2], kWhite},
+            {positions[0], kWhite, {}}, {positions[1], kWhite, {}}, {positions[2], kWhite, {}},
         };
         SourceVertex twoOutside[3] = {
-            {positions[0], kWhite}, {positions[1], kWhite}, {positions[2], kWhite},
+            {positions[0], kWhite, {}}, {positions[1], kWhite, {}}, {positions[2], kWhite, {}},
         };
         for (std::uint8_t i = 0; i < 3; ++i) {
             oneOutside[i].position.z = permutation[i] == 0 ? 0.25f : 2.0f;
@@ -367,7 +367,7 @@ void ClippingPreservesWindingForVertexPermutations() {
     float referenceSign = 0.0f;
     for (const auto& permutation : permutations) {
         SourceVertex vertices[3] = {
-            {positions[0], kWhite}, {positions[1], kWhite}, {positions[2], kWhite},
+            {positions[0], kWhite, {}}, {positions[1], kWhite, {}}, {positions[2], kWhite, {}},
         };
         for (std::uint8_t i = 0; i < 3; ++i) {
             vertices[i].position.z = permutation[i] == 0 ? 0.25f : 2.0f;
@@ -424,9 +424,9 @@ void CubeIndicesHaveOutwardWinding() {
 void InvalidConfigIsReported() {
     constexpr const char* testName = "InvalidConfigIsReported";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, kWhite},
+        {{-0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, kWhite, {}},
     };
     GeometryConfig config = defaultConfig();
     config.nearPlane = 0.0f;
@@ -440,9 +440,9 @@ void InvalidConfigIsReported() {
 void NonFiniteMatrixIsReported() {
     constexpr const char* testName = "NonFiniteMatrixIsReported";
     const SourceVertex vertices[] = {
-        {{-0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.5f, -0.5f, 2.0f}, kWhite},
-        {{0.0f, 0.5f, 2.0f}, kWhite},
+        {{-0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.5f, -0.5f, 2.0f}, kWhite, {}},
+        {{0.0f, 0.5f, 2.0f}, kWhite, {}},
     };
     Matrix4x4 matrix = identityMatrix();
     matrix.m[0][0] = INFINITY;
