@@ -87,7 +87,8 @@ GENERATED_WARNING_FLAGS := \
     -Wno-error=unused-parameter \
     -Wno-error=delete-non-virtual-dtor \
     -Wno-error=reorder \
-    -Wno-error=sign-compare
+    -Wno-error=sign-compare \
+    -Wno-error=unused-but-set-variable
 all: $(GENERATED_SOURCE_LIST)
 AUTHORED_SOURCES := \
     src/platform/dreamcast/DreamcastContentPath.cpp \
