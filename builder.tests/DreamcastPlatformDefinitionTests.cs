@@ -52,7 +52,11 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Equal(PlatformSerializationEndianness.LittleEndian, codegen.Endianness);
         Assert.Contains(codegen.Settings, setting => setting.SettingId == "pointer-size-bytes" && setting.DefaultValue == "4");
         Assert.Contains(codegen.Settings, setting => setting.SettingId == "generated-math-convention" && setting.DefaultValue == "native-column-vector");
-        Assert.Contains(codegen.Settings, setting => setting.SettingId == "native-file-stream-descriptor-apis" && setting.DefaultValue == "false");
+        // KallistiOS lacks the descriptor APIs the hosted file stream path calls.
+        Assert.Contains(codegen.Settings, setting => setting.SettingId == "codegen-use-hosted-file-system" && setting.DefaultValue == "false");
+        Assert.Contains(codegen.Settings, setting => setting.SettingId == "codegen-compact-native-exception-messages" && setting.DefaultValue == "true");
+        // The generator stopped reading this name; keeping it would be dead configuration.
+        Assert.DoesNotContain(codegen.Settings, setting => setting.SettingId == "native-file-stream-descriptor-apis");
     }
 
     /// <summary>Confirms the initial native executor validates its required build request.</summary>

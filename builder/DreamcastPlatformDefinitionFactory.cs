@@ -25,7 +25,13 @@ public static class DreamcastPlatformDefinitionFactory {
                 new(PlatformCodegenSettingIds.ForcedDisabledFeatures, "Forced Disabled Features", PlatformSettingKind.Text, ForcedDisabledFeatures, true, []),
                 new("generated-math-convention", "Generated Math Convention", PlatformSettingKind.Text, "native-column-vector", true, []),
                 new("pointer-size-bytes", "Pointer Size (Bytes)", PlatformSettingKind.Text, "4", true, []),
-                new("native-file-stream-descriptor-apis", "Native File Stream Descriptor APIs", PlatformSettingKind.Boolean, "false", true, []),
+                // KallistiOS has no fileno/ftruncate/fstat, so the generated file stream must not
+                // take its hosted path. This replaced the older native-file-stream-descriptor-apis
+                // option, which the current generator no longer reads.
+                new("codegen-use-hosted-file-system", "Use Hosted File System", PlatformSettingKind.Boolean, "false", true, []),
+                // Compact messages keep exception strings out of a 16 MiB console's budget, and are
+                // the branch of the generated exception helpers that consumes its fallback argument.
+                new("codegen-compact-native-exception-messages", "Compact Native Exception Messages", PlatformSettingKind.Boolean, "true", true, []),
                 new("type-remaps", "Type Remaps", PlatformSettingKind.Text, "System.Numerics.Vector2=helengine.float2;System.Numerics.Vector3=helengine.float3;System.Numerics.Vector4=helengine.float4;System.Numerics.Quaternion=helengine.float4", true, []),
                 new("native-file-system-header", "Native File System Header", PlatformSettingKind.Text, "\"platform/dreamcast/DreamcastContentStreamSource.hpp\"", true, []),
                 new("native-file-system-type", "Native File System Type", PlatformSettingKind.Text, "helengine::dreamcast::DreamcastContentStreamSource", true, []),
