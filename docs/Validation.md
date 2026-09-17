@@ -205,3 +205,67 @@ this task's primary evidence target.
 | Visible launch | `launch_in_emulator.ps1 -Visible` | D1 (the only build that actually runs today; no authored build could be launched visibly per Blocker 2) | Process owner `DESKTOP-HELENA\Helena`, `MainWindowHandle=1709150` (nonzero), title `Flycast - helengine_dc`, `Responding=True`. Left running for the user. | `v03/fixtures/diagnostic/task7-diagnostic-01/emulator-stdout.log` |
 
 Physical hardware remains untested, as for all prior rows in this document.
+
+# Dreamcast v0.3 lighting evidence: resolved 2026-09-17
+
+Both blockers above are cleared and **on-screen shading proof for a running
+authored ELF was obtained.** The rows below supersede the "not obtained"
+statement at the head of the v0.3 section; that section is kept as the record
+of what was true on 2026-09-16.
+
+Blocker 1 was not an undefined `he_cpp_raise`. Once the generator gained its
+capability-aware runtime, the Dreamcast platform definition was still
+declaring `native-file-stream-descriptor-apis`, an option the generator no
+longer reads, so the hosted file-stream path stayed enabled and called
+`fileno`, `ftruncate` and `fstat`, which KallistiOS does not declare. The
+option is now `codegen-use-hosted-file-system=false`. Two further generator
+faults surfaced behind it and are recorded under "Generator defects" below.
+
+Blocker 2, the Authored-mode runtime crash, does not reproduce. Every authored
+run today reached a clean shutdown with `au_error=0`.
+
+## Build identity
+
+| Ref | Build | Route | ELF SHA-256 |
+|---|---|---|---|
+| L3 | `v02/cube-test/graph-8/build/authored-bc9852d6ad5e4b00bce07b4ad1bff852` | `prepare-authored-fixture.ps1 -Build`, `FixtureRoot=C:\dev\helprojs\demodisc`, engine version `1.0.0+ec2d7ff8...`, fresh generated Core | `7457faea2c6966e54846ceed004ba3489c626f4a86d1ef46c0336f8ddf6808be` |
+
+Repo commit `86ab188020cd65d7d192031ed86ea038bba1df3b`, `GitDirty=false`.
+Shared checkouts at run time: helengine `main cd9b996d`, csharpcodegen
+`master c3c0521` (also the engine's vendored submodule, which is what the
+graph actually builds the generator from; `-CodegenToolPath` does not steer it).
+
+## Evidence
+
+| Evidence row | Route | Observed result | Artifact path |
+|---|---|---|---|
+| Fresh Core exposes the camera field of view | generated header inspection | `virtual float get_FieldOfView() = 0;` and its setter present, so the projection reads authored camera state rather than a platform constant. | `v02/cube-test/cache-fix-1/.../generated-core/ICamera.hpp` |
+| Light deserializer generated | generated source listing | `GeneratedRuntimeDirectionalLightComponentDeserializer.cpp` emitted; its absence was one of the two 2026-09-16 blockers. | `v02/cube-test/cache-fix-1/.../generated-core/` |
+| Cooked materials carry the renamed profile | content grep | Both `engine/materials/standard.hasset` and `materials/rendering/cube_test/cubetestsolid.hasset` contain `dc-standard`; no `dc-unlit` anywhere in cooked content. The stale-content blocker is gone. | `v02/cube-test/cache-fix-1/.../content/cooked/` |
+| Cube material is lit | cooked byte inspection | `Lit=01`, base colour `ff ff ff ff` (white), no texture, single sided. | `.../cooked/materials/rendering/cube_test/cubetestsolid.hasset` |
+| Lights gathered and published | verifier snapshot | `lights=1` in the authored snapshot, at `au_version=2`. | `v02/cube-test/verify-8/verify-report.txt` |
+| Authored run, 242 frames | `verify-authored-scene.ps1 -CaptureFrames 120,180` | PASS. `cameras=1 drawables=1 tris=12 clipped=0 rejected=0 presented=242 lights=1 au_error=0`, clean shutdown, checked free heap 14,511,760 B. | `v02/cube-test/verify-8/verify-report.txt` |
+| Authored run, 602 frames | `verify-authored-scene.ps1 -CaptureFrames 30,150,300,450 -StartAfterFrames 600` | PASS. `presented=602 lights=1 au_error=0`, clean shutdown. | `v02/cube-test/verify-8-spin/verify-report.txt` |
+| **Directional shading visible on screen** | framebuffer capture, frame 450 | The rotated cube shows its lit face at `0xad35` = (173,166,173) and its away-facing face at `0x2104` = (33,32,33) in the same frame, from one directional light on a white base colour. Roughly 68 per cent versus 13 per cent of white: a Lambert term on the lit face and ambient only on the other. | `v02/cube-test/verify-8-spin/frame-0450.png`, `.raw` |
+| Shading tracks rotation | four captures across one run | Frame 300 is face-on and uniform at `0x8c71` = (140,142,140); frames 30, 150 and 450 show two distinct face shades. Frames differ by up to 41,844 bytes. Shading changes with orientation, which is what per-vertex Lambert under a fixed world light must do. | `v02/cube-test/verify-8-spin/frame-{0030,0150,0300,0450}.raw` |
+
+## Generator defects found while unblocking this
+
+Neither was worked around in emitted C++, and the shared generator was not
+modified. Both are worth fixing upstream.
+
+1. `runtime/native_exceptions.hpp` gives `SelectMessage`, `MessageWithParameter`
+   and `MessageWithFileName` a `fallback` parameter that only the compact-message
+   branch consumes. The full-message branch silences `message` but not
+   `fallback`, so any target compiling generated headers under
+   `-Werror=unused-parameter` fails. Dreamcast now selects compact messages,
+   which suits a 16 MiB console, but the next target wanting full messages will
+   hit this.
+2. Under compact messages the generated deserializers still emit
+   `receivedVersion`, `hasReceivedVersion`, `receivedMemberCount` and
+   `hasReceivedMemberCount`, which exist only to be interpolated into the full
+   message text. With no message to build they are set and never read, tripping
+   `-Werror=unused-but-set-variable` in four deserializers. Demoted for
+   generated translation units only; our own sources keep full `-Werror`.
+
+Physical hardware remains untested, as for all prior rows in this document.
