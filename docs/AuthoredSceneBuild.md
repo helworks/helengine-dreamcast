@@ -40,11 +40,14 @@ records the evidence rows.
 - Camera: authored rigid world transform, near/far planes, vertical field of
   view and clear RGB, full viewport, back buffer only, color and depth clear
   enabled, no stencil. The aspect ratio is 640/480. The field of view is read
-  from `ICamera.FieldOfView`, so a scene frames the same way here as on every
-  other platform; a camera that never authored one carries the engine default
-  of 45 degrees. A value outside the engine's `CameraProjectionUtils` clamp
-  range, or a non-finite one, fails the frame with status `invalid-camera`
-  (`AuthoredFrameStatus::InvalidCamera`) before any packet is emitted.
+  from `ICamera.FieldOfView`, so a scene inside the engine's legal range frames
+  the same way here as on every other platform; a camera that never authored one
+  carries the engine default of 45 degrees. Outside that range the platforms
+  diverge deliberately: `CameraProjectionUtils.ClampFieldOfView` clamps, while
+  Dreamcast fails the frame with status `invalid-camera`
+  (`AuthoredFrameStatus::InvalidCamera`) before any packet is emitted, as it does
+  for the near and far planes. A non-finite value fails the same way, which the
+  engine's clamp does not catch, since `Math.Min`/`Math.Max` propagate NaN.
 - Model transforms must be finite affine with a positive determinant. Nonuniform
   scale is fine; mirrored or singular transforms are rejected per frame.
 - Budgets: one MiB of embedded cooked content, eight MiB resident ELF span

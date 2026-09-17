@@ -246,7 +246,8 @@ graph actually builds the generator from; `-CodegenToolPath` does not steer it).
 | Lights gathered and published | verifier snapshot | `lights=1` in the authored snapshot, at `au_version=2`. | `v02/cube-test/verify-8/verify-report.txt` |
 | Authored run, 242 frames | `verify-authored-scene.ps1 -CaptureFrames 120,180` | PASS. `cameras=1 drawables=1 tris=12 clipped=0 rejected=0 presented=242 lights=1 au_error=0`, clean shutdown, checked free heap 14,511,760 B. | `v02/cube-test/verify-8/verify-report.txt` |
 | Authored run, 602 frames | `verify-authored-scene.ps1 -CaptureFrames 30,150,300,450 -StartAfterFrames 600` | PASS. `presented=602 lights=1 au_error=0`, clean shutdown. | `v02/cube-test/verify-8-spin/verify-report.txt` |
-| **Directional shading visible on screen** | framebuffer capture, frame 450 | The rotated cube shows its lit face at `0xad35` = (173,166,173) and its away-facing face at `0x2104` = (33,32,33) in the same frame, from one directional light on a white base colour. Roughly 68 per cent versus 13 per cent of white: a Lambert term on the lit face and ambient only on the other. | `v02/cube-test/verify-8-spin/frame-0450.png`, `.raw` |
+| **Directional shading visible on screen** | framebuffer capture, frame 450 | The rotated cube shows two faces at once at `0xad35` = (173,166,173) and `0x2104` = (33,32,33), roughly 68 per cent and 13 per cent of the white base colour, from a single directional light. Two different Lambert terms on one mesh in one frame is the shading proof. | `v02/cube-test/verify-8-spin/frame-0450.png`, `.raw` |
+| Neither face is ambient-lit, and neither faces fully away | cooked scene and framebuffer histogram | The cooked `cube_test` scene contains one `DirectionalLightComponent` and **no** `AmbientLightComponent`, so the ambient term is zero. Frame 450 contains zero black pixels, confirming no captured face points fully away from the light: the darker face sits at a grazing angle with a small positive Lambert term, not in shadow. An earlier revision of this row wrongly described that face as "ambient only"; corrected here. Full darkness on a back face is therefore still unproven on screen, and the host suite covers it instead (`LitVertexFacingAwayWithoutAmbientIsBlack`). | `.../cooked/scenes/rendering/cube_test.hasset`, `verify-8-spin/frame-0450.raw` |
 | Shading tracks rotation | four captures across one run | Frame 300 is face-on and uniform at `0x8c71` = (140,142,140); frames 30, 150 and 450 show two distinct face shades. Frames differ by up to 41,844 bytes. Shading changes with orientation, which is what per-vertex Lambert under a fixed world light must do. | `v02/cube-test/verify-8-spin/frame-{0030,0150,0300,0450}.raw` |
 
 ## Generator defects found while unblocking this
@@ -256,16 +257,39 @@ modified. Both are worth fixing upstream.
 
 1. `runtime/native_exceptions.hpp` gives `SelectMessage`, `MessageWithParameter`
    and `MessageWithFileName` a `fallback` parameter that only the compact-message
-   branch consumes. The full-message branch silences `message` but not
-   `fallback`, so any target compiling generated headers under
-   `-Werror=unused-parameter` fails. Dreamcast now selects compact messages,
-   which suits a 16 MiB console, but the next target wanting full messages will
-   hit this.
+   branch consumes. Specifically the `HeCppString` overloads compiled when
+   `HE_CPP_COMPACT_NATIVE_EXCEPTION_MESSAGES` is 0 never read `fallback`, while
+   the `const char*` overloads do; the compact branch silences `message` but
+   nothing silences `fallback` on the other side. Any target compiling generated
+   headers under `-Werror=unused-parameter` therefore fails. Dreamcast now selects
+   compact messages, which suits a 16 MiB console, but the next target wanting
+   full messages will hit this.
 2. Under compact messages the generated deserializers still emit
    `receivedVersion`, `hasReceivedVersion`, `receivedMemberCount` and
    `hasReceivedMemberCount`, which exist only to be interpolated into the full
    message text. With no message to build they are set and never read, tripping
    `-Werror=unused-but-set-variable` in four deserializers. Demoted for
    generated translation units only; our own sources keep full `-Werror`.
+
+## Cost accepted by enabling compact exception messages
+
+Compact messages **discard** the authored message rather than shortening it:
+`SelectMessage` returns its `const char*` fallback and voids the managed string.
+The runtime host's only window into a managed failure is `exception->what()` in
+`DreamcastRuntimeHost.cpp`, so every managed exception now reports a canonical
+generic string instead of its reason.
+
+The case this costs most is the one this branch just debugged. A content and Core
+version skew surfaces as a deserializer throwing a message built from
+`receivedVersion` and `receivedMemberCount`, which are exactly the values that
+become dead under compact messages. A future skew will report a generic
+invalid-operation rather than naming the version it received.
+
+Accepted knowingly, for two reasons: the fault is reachable from the build graph,
+where the manifest and cooked content are inspectable offline, and the platform
+gains a real ROM and RAM saving on a 16 MiB console. If managed exception text is
+ever needed on device, flip `codegen-compact-native-exception-messages` to
+`false` for a diagnostic build, which also requires generator defect 1 above to
+be fixed first.
 
 Physical hardware remains untested, as for all prior rows in this document.

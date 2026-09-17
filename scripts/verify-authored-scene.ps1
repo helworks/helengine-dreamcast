@@ -13,6 +13,10 @@ param(
     [int]$StartAfterFrames = 240,
     [ValidateRange(60, 200000)]
     [int]$TimeoutVblanks = 1800,
+    # Minimum directional lights the authored snapshot must report for a PASS.
+    # Default 0 keeps unlit scenes verifiable; lit scenes should pass 1 or more.
+    [ValidateRange(0, 255)]
+    [int]$MinimumLights = 0,
     [switch]$NoController,
     [ValidateRange(10, 3600)]
     [int]$WaitSeconds = 300
@@ -136,6 +140,7 @@ local frameCountAddress = @@FRAME_COUNT@@
 local captureFrames = { @@CAPTURES@@ }
 local startAfterFrames = @@START_AFTER@@
 local timeoutVblanks = @@TIMEOUT_VBLANKS@@
+local minimumLights = @@MINIMUM_LIGHTS@@
 local injectStart = @@INJECT_START@@
 local minimumFreeHeap = 4194304
 local startButton = 8
@@ -240,8 +245,16 @@ local function cbVBlank()
   -- Authored snapshot version 2 added directionalLightCount. Pinned to the
   -- current kDreamcastAuthoredSnapshotVersion so a stale ELF fails loudly
   -- rather than being read against the wrong layout.
-  local valid = v[1] == 0x48455250 and v[2] == 1 and a[1] == 0x48454153 and a[2] == 2
+  local magicOk = v[1] == 0x48455250 and a[1] == 0x48454153
+  local valid = magicOk and v[2] == 1 and a[2] == 2
   if frame == 1 then line(string.format("vblank=%d %s %s", frame, runtimeText(v), authoredText(a))) end
+  -- Both magics present but a version we cannot read means a stale ELF. Fail on
+  -- the spot: waiting for the timeout would hide the real reason, and every
+  -- other predicate below is gated on `valid` so nothing would ever report.
+  if magicOk and not valid then
+    finish("version-mismatch", v, a, d, ready, count)
+    return
+  end
   if valid and (v[3] == 0xffffffff or a[4] ~= 0) then finish("error", v, a, d, ready, count); return end
   if valid and ready == 1 and not sceneReadyLogged then
     sceneReadyLogged = true
@@ -274,6 +287,13 @@ local function cbVBlank()
   if valid and startPressedAt ~= nil and v[3] == 5 and v[4] == 0 and v[5] == 6 and a[3] == 9 and a[4] == 0 and
       v[17] == 1 and v[18] == 1 and v[19] == 1 and v[20] == 1 and
       v[6] >= minimumFreeHeap and v[7] >= minimumFreeHeap and v[8] >= minimumFreeHeap and v[9] >= minimumFreeHeap then
+    -- a[16] is directionalLightCount. Without this gate a lit scene that
+    -- gathered no lights at all still reports success, which would leave the
+    -- lighting feature with no automated check anywhere.
+    if a[16] < minimumLights then
+      finish("lights-below-gate", v, a, d, ready, count)
+      return
+    end
     finish("success", v, a, d, ready, count)
     return
   end
@@ -298,6 +318,7 @@ $lua = $luaTemplate.Replace('@@ROOT@@', ($EvidenceRoot.Replace('\', '/') + '/'))
     Replace('@@CAPTURES@@', $captureTable).
     Replace('@@START_AFTER@@', [string]$StartAfterFrames).
     Replace('@@TIMEOUT_VBLANKS@@', [string]$TimeoutVblanks).
+    Replace('@@MINIMUM_LIGHTS@@', [string]$MinimumLights).
     Replace('@@INJECT_START@@', $(if ($NoController) { 'false' } else { 'true' }))
 $luaPath = Join-Path $EvidenceRoot 'verify-probe.lua'
 [IO.File]::WriteAllText($luaPath, $lua, (New-Object System.Text.UTF8Encoding($false)))
@@ -334,7 +355,7 @@ if (-not (Test-Path -LiteralPath $csvPath -PathType Leaf)) {
 }
 $lines = @(Get-Content -LiteralPath $csvPath)
 $expectedKind = if ($NoController) { 'no-controller-complete' } else { 'success' }
-$resultLine = $lines | Where-Object { $_ -match "^(success|no-controller-complete|error|timeout|heap-below-gate) " } | Select-Object -First 1
+$resultLine = $lines | Where-Object { $_ -match "^(success|no-controller-complete|error|timeout|heap-below-gate|lights-below-gate|version-mismatch) " } | Select-Object -First 1
 if ($null -eq $resultLine) {
     throw 'The Lua probe did not reach a terminal result.'
 }

@@ -8,11 +8,12 @@
 
 namespace helengine::dreamcast {
 
-/// Default vertical field of view in radians, 45 degrees, matching the engine's
-/// CameraProjectionUtils.DefaultFieldOfView. The authored projection reads the
-/// value from the camera; this constant is only the fallback a camera that was
-/// never authored would carry. The diagnostic cube keeps its own 1.10 radian
-/// value; the two are not shared.
+/// The engine's CameraProjectionUtils.DefaultFieldOfView, 45 degrees, restated
+/// here so host tests can build a camera carrying the value a never-authored
+/// camera arrives with. Production code does not read it: the projection takes
+/// the field of view from AuthoredCameraState, and nothing in this platform
+/// substitutes a default. The diagnostic cube keeps its own 1.10 radian value;
+/// the two are not shared.
 constexpr float kAuthoredVerticalFovRadians = 0.78539816339744830962f;
 
 /// Accepted vertical field-of-view range in radians, mirroring the engine's

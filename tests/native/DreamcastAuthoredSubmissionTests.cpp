@@ -204,12 +204,13 @@ void ProjectionUsesTheAuthoredCameraFieldOfView() {
     EXPECT(assembler.addDrawable(drawable) == AuthoredFrameStatus::Ok);
     EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
 
+    // This assertion is itself the guard. The expected y comes from the camera's
+    // own field of view, so an assembler that ignored it and used the 45 degree
+    // constant would place the vertex at 240 - 579.4/6 instead of 240 - 915.2/6,
+    // roughly 56 pixels away and far outside the tolerance.
     const float narrowFocal = 240.0f / std::tan(narrowFov * 0.5f);
-    const float defaultFocal = 240.0f / std::tan(kAuthoredVerticalFovRadians * 0.5f);
     const ProjectedVertex& top = assembler.geometry().triangles[0].vertices[0];
     EXPECT(near(top.y, 240.0f - narrowFocal / 6.0f, 1.0e-2f));
-    // Guards against the assembler ignoring the camera and using the default.
-    EXPECT(!near(narrowFocal, defaultFocal, 1.0f));
 }
 
 void OutOfRangeFieldOfViewFails() {
@@ -223,6 +224,43 @@ void OutOfRangeFieldOfViewFails() {
         EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::InvalidCamera);
         EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
         EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidCamera);
+    }
+    EXPECT(sink.presentCount == 0);
+}
+
+void FieldOfViewRangeBoundariesAreAccepted() {
+    // Without these, widening kMinimum/kMaximum away from the engine's clamp
+    // constants leaves every rejection case above still rejected, so the range
+    // could drift silently. These pin both inclusive bounds and the first value
+    // past the top, which also catches a < versus <= inversion.
+    RecordingSink sink;
+    // Pin the bounds to the engine's CameraProjectionUtils.MinimumFieldOfView and
+    // MaximumFieldOfView literally. The boundary cases below are written in terms
+    // of the constants, so on their own they would follow the constants if those
+    // drifted; only these two assertions catch that.
+    EXPECT(near(kMinimumVerticalFovRadians, 0.0174533f, 1.0e-7f));
+    EXPECT(near(kMaximumVerticalFovRadians, 3.0543262f, 1.0e-7f));
+    const float accepted[2] = {kMinimumVerticalFovRadians, kMaximumVerticalFovRadians};
+    for (float value : accepted) {
+        AuthoredFrameAssembler assembler;
+        AuthoredCameraState camera = validCamera();
+        camera.verticalFovRadians = value;
+        assembler.begin(640.0f, 480.0f);
+        EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::Ok);
+    }
+    {
+        AuthoredFrameAssembler assembler;
+        AuthoredCameraState camera = validCamera();
+        camera.verticalFovRadians = std::nextafter(kMaximumVerticalFovRadians, 4.0f);
+        assembler.begin(640.0f, 480.0f);
+        EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::InvalidCamera);
+    }
+    {
+        AuthoredFrameAssembler assembler;
+        AuthoredCameraState camera = validCamera();
+        camera.verticalFovRadians = std::nextafter(kMinimumVerticalFovRadians, 0.0f);
+        assembler.begin(640.0f, 480.0f);
+        EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::InvalidCamera);
     }
     EXPECT(sink.presentCount == 0);
 }
@@ -591,6 +629,7 @@ int main() {
     CameraTranslationMovesProjectionOpposite();
     ProjectionUsesTheAuthoredCameraFieldOfView();
     OutOfRangeFieldOfViewFails();
+    FieldOfViewRangeBoundariesAreAccepted();
     CardinalityViolationsFailBeforeAnyPresentation();
     InvalidCameraMaterialAndTransformsFailBeforePackets();
     FullyClippedDrawableIsAValidClearOnlyFrame();
