@@ -6,3 +6,9 @@
 *.d
 tests/native/*.bin
 tests/native/*.out
+
+# .NET build outputs. The builder and its tests are built with --artifacts-path
+# into C:\dev\helworks\builds\helengine-dc, never into the worktree, but a bare
+# `dotnet build`/`dotnet test` still drops these here.
+bin/
+obj/
