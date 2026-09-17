@@ -237,7 +237,10 @@ local function cbVBlank()
   local d = readWords(diagAddress, 20)
   local ready = flycast.memory.read32(sceneReadyAddress)
   local count = flycast.memory.read32(frameCountAddress)
-  local valid = v[1] == 0x48455250 and v[2] == 1 and a[1] == 0x48454153 and a[2] == 1
+  -- Authored snapshot version 2 added directionalLightCount. Pinned to the
+  -- current kDreamcastAuthoredSnapshotVersion so a stale ELF fails loudly
+  -- rather than being read against the wrong layout.
+  local valid = v[1] == 0x48455250 and v[2] == 1 and a[1] == 0x48454153 and a[2] == 2
   if frame == 1 then line(string.format("vblank=%d %s %s", frame, runtimeText(v), authoredText(a))) end
   if valid and (v[3] == 0xffffffff or a[4] ~= 0) then finish("error", v, a, d, ready, count); return end
   if valid and ready == 1 and not sceneReadyLogged then
