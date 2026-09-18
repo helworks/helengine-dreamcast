@@ -43,6 +43,19 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.DoesNotContain(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.lightcomponent");
     }
 
+    /// <summary>Confirms sprites are transformed through while text and rounded rectangles are rejected.</summary>
+    [Fact]
+    public void DefinitionSupportsSpritesAndRejectsTextAndRoundedRects() {
+        DreamcastPlatformAssetBuilder builder = new();
+
+        PlatformComponentSupportRule sprite = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.SpriteComponent");
+        PlatformComponentSupportRule text = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.TextComponent");
+        PlatformComponentSupportRule rounded = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.RoundedRectComponent");
+        Assert.Equal(PlatformComponentSupportKind.Transform, sprite.SupportKind);
+        Assert.Equal(PlatformComponentSupportKind.Unsupported, text.SupportKind);
+        Assert.Equal(PlatformComponentSupportKind.Unsupported, rounded.SupportKind);
+    }
+
     /// <summary>Confirms the codegen profile publishes the fixed native ABI choices.</summary>
     [Fact]
     public void DefinitionPublishesDreamcastCodegenContract() {

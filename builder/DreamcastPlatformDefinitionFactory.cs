@@ -70,7 +70,10 @@ public static class DreamcastPlatformDefinitionFactory {
                 new PlatformComponentSupportRule("helengine.DirectionalLightComponent", PlatformComponentSupportKind.Transform, "Dreamcast v0.3 supports per-vertex directional lighting.", string.Empty),
                 new PlatformComponentSupportRule("helengine.AmbientLightComponent", PlatformComponentSupportKind.Transform, "Dreamcast v0.3 supports one summed ambient color.", string.Empty),
                 new PlatformComponentSupportRule("helengine.PointLightComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast lighting supports directional and ambient lights only.", "Remove point lights or exclude them on Dreamcast."),
-                new PlatformComponentSupportRule("helengine.SpotLightComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast lighting supports directional and ambient lights only.", "Remove spot lights or exclude them on Dreamcast.")
+                new PlatformComponentSupportRule("helengine.SpotLightComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast lighting supports directional and ambient lights only.", "Remove spot lights or exclude them on Dreamcast."),
+                new PlatformComponentSupportRule("helengine.SpriteComponent", PlatformComponentSupportKind.Transform, "Authored sprites draw in the translucent overlay list.", "Keep sprite components; they render as textured quads."),
+                new PlatformComponentSupportRule("helengine.TextComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast has no font atlas or glyph layout yet.", "Remove text components or exclude them for dc."),
+                new PlatformComponentSupportRule("helengine.RoundedRectComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast draws no rounded-rectangle primitive.", "Remove rounded rectangle components or exclude them for dc.")
             ],
             [codegen],
             [new PlatformStorageProfileDefinition("romfs-package", "ROMFS Package", PlatformStorageProfileKind.LooseFiles, "dc-romfs-package", false)],
