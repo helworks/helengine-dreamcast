@@ -281,13 +281,17 @@ public sealed class DreamcastTextureCookerTests {
     /// <summary>Confirms padding is transparent black so no colour can bleed at the sampled edge.</summary>
     [Fact]
     public void Cook_FillsPaddingWithTransparentBlack() {
-        helengine.TextureAsset asset = CreateRgba32(1, 1);
-        asset.Colors = [0xFF, 0xFF, 0xFF, 0xFF];
+        // 3x2 pads to a 4x4 square, so (3,3) is padding while (2,1) is real.
+        // Every source pixel is opaque white, so a zero can only come from padding.
+        helengine.TextureAsset asset = CreateRgba32(3, 2);
+        Array.Fill(asset.Colors, (byte)0xFF);
 
         byte[] cooked = new DreamcastTextureCooker().Cook(asset);
 
-        int offset = DreamcastTextureSchemaIds.HeaderBytes + (DreamcastTextureTwiddle.TwiddledIndex(1, 1) * 2);
-        Assert.Equal((ushort)0x0000, BitConverter.ToUInt16(cooked, offset));
+        int padding = DreamcastTextureSchemaIds.HeaderBytes + (DreamcastTextureTwiddle.TwiddledIndex(3, 3) * 2);
+        int real = DreamcastTextureSchemaIds.HeaderBytes + (DreamcastTextureTwiddle.TwiddledIndex(2, 1) * 2);
+        Assert.Equal((ushort)0x0000, BitConverter.ToUInt16(cooked, padding));
+        Assert.Equal((ushort)0xFFFF, BitConverter.ToUInt16(cooked, real));
     }
 
     /// <summary>Confirms a source larger than the PVR limit is rejected by name.</summary>
