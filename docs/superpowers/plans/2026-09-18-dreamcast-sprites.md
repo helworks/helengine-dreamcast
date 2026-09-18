@@ -76,7 +76,7 @@ format uses exactly these offsets.
 | 8 | 2 | padded side, power of two, square |
 | 10 | 2 | used width |
 | 12 | 2 | used height |
-| 14 | 2 | reserved, must be 0 |
+| 14 | 2 | reserved, written as zero, ignored by readers |
 | 16 | side × side × 2 | ARGB4444, twiddled |
 
 ---
