@@ -80,6 +80,20 @@ public sealed class DreamcastContentStager {
                 continue;
             }
 
+            if (TryReadTexture(sourcePath, out helengine.TextureAsset? texture)) {
+                VerifyHash(artifact, sourcePath);
+                byte[] converted = new DreamcastTextureCooker().Cook(texture!);
+                if (converted.Length > MaximumPayloadBytes || converted.Length > MaximumPayloadBytes - totalBytes) {
+                    throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                File.WriteAllBytes(destinationPath, converted);
+                totalBytes += converted.Length;
+                File.SetLastWriteTimeUtc(destinationPath, BuildEpochUtc);
+                stagedPaths.Add(relativePath);
+                continue;
+            }
+
             FileInfo sourceInfo = new(sourcePath);
             if (sourceInfo.Length > MaximumPayloadBytes || sourceInfo.Length > MaximumPayloadBytes - totalBytes) {
                 throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
@@ -107,7 +121,7 @@ public sealed class DreamcastContentStager {
         return stagedPaths;
     }
 
-    /// <summary>Returns true when the cooked file deserializes as a scene, model or platform material.</summary>
+    /// <summary>Returns true when the cooked file deserializes as a scene, model, platform material or texture.</summary>
     static bool IsRuntimeLoadable(string sourcePath) {
         byte[] bytes = File.ReadAllBytes(sourcePath);
         if (bytes.Length < 4 || bytes[0] != (byte)'H' || bytes[1] != (byte)'E' || bytes[2] != (byte)'L' || bytes[3] != (byte)'E') {
@@ -115,7 +129,22 @@ public sealed class DreamcastContentStager {
         }
         try {
             Asset asset = AssetSerializer.DeserializeFromBytes(bytes);
-            return asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset;
+            return asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset || asset is TextureAsset;
+        } catch (Exception exception) when (exception is not OutOfMemoryException) {
+            return false;
+        }
+    }
+
+    /// <summary>Returns the deserialized texture when the file is one, otherwise false.</summary>
+    static bool TryReadTexture(string sourcePath, out helengine.TextureAsset? texture) {
+        texture = null;
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        if (bytes.Length < 4 || bytes[0] != (byte)'H' || bytes[1] != (byte)'E' || bytes[2] != (byte)'L' || bytes[3] != (byte)'E') {
+            return false;
+        }
+        try {
+            texture = AssetSerializer.DeserializeFromBytes(bytes) as helengine.TextureAsset;
+            return texture != null;
         } catch (Exception exception) when (exception is not OutOfMemoryException) {
             return false;
         }

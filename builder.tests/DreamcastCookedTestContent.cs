@@ -5,13 +5,105 @@ using helengine.baseplatform.Manifest;
 
 namespace helengine.dreamcast.builder.tests;
 
-/// <summary>Builds real cooked scene, model and material bytes with the current engine serializers for builder tests.</summary>
-internal static class DreamcastCookedTestContent {
+/// <summary>Builds real cooked scene, model, material and texture bytes with the current engine serializers for builder tests.</summary>
+internal sealed class DreamcastCookedTestContent : IDisposable {
     public const string ScenePath = "cooked/scenes/startup.hasset";
     public const string ModelPath = "cooked/imported/models/cube.hasset";
     public const string MaterialPath = "cooked/materials/cube.helmat";
+    public const string TexturePath = "textures/icon.hasset";
     public const string CameraTypeId = "helengine.CameraComponent";
     public const string MeshTypeId = "helengine.MeshComponent";
+
+    readonly string RootPath;
+
+    DreamcastCookedTestContent(PlatformBuildManifest manifest, string sourceRoot, string destinationRoot, string rootPath) {
+        Manifest = manifest;
+        SourceRoot = sourceRoot;
+        DestinationRoot = destinationRoot;
+        RootPath = rootPath;
+    }
+
+    /// <summary>Gets the manifest describing the written cooked package.</summary>
+    public PlatformBuildManifest Manifest { get; }
+
+    /// <summary>Gets the cooked package source root on disk.</summary>
+    public string SourceRoot { get; }
+
+    /// <summary>Gets the fresh, not-yet-created ROMFS staging root on disk.</summary>
+    public string DestinationRoot { get; }
+
+    /// <summary>Builds a valid baseline package plus one declared texture artifact at <see cref="TexturePath"/>.</summary>
+    public static DreamcastCookedTestContent CreateWithTexture() {
+        string rootPath = Path.Combine(Path.GetTempPath(), "helengine-dc-cooked-content-" + Guid.NewGuid().ToString("N"));
+        string sourceRoot = Path.Combine(rootPath, "package-source");
+        string destinationRoot = Path.Combine(rootPath, "stage");
+        PlatformBuildArtifact[] baseArtifacts = WriteValidPackage(sourceRoot);
+
+        using TextureAsset texture = CreateTexture(3, 2);
+        byte[] textureBytes = helengine.files.AssetSerializer.SerializeToBytes(texture);
+        WriteFile(sourceRoot, TexturePath, textureBytes);
+        PlatformBuildArtifact textureArtifact = new(TexturePath, "texture/icon", Hash(textureBytes), "texture", "baseline");
+
+        PlatformBuildManifest manifest = CreateManifest(baseArtifacts[0], [.. baseArtifacts[1..], textureArtifact]);
+        return new DreamcastCookedTestContent(manifest, sourceRoot, destinationRoot, rootPath);
+    }
+
+    /// <summary>Creates a solid-colour texture of the given dimensions in Rgba32.</summary>
+    public static TextureAsset CreateTexture(int width, int height) {
+        byte[] colors = new byte[width * height * 4];
+        for (int index = 0; index < width * height; index++) {
+            colors[index * 4] = 208;
+            colors[(index * 4) + 1] = 32;
+            colors[(index * 4) + 2] = 32;
+            colors[(index * 4) + 3] = 255;
+        }
+        return new TextureAsset {
+            Id = "textures/icon",
+            AuthoringAssetId = CreateAssetId(TexturePath),
+            FormerAuthoringAssetIds = Array.Empty<string>(),
+            Width = (ushort)width,
+            Height = (ushort)height,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8,
+            Colors = colors,
+            PaletteColors = Array.Empty<byte>(),
+            IsEngineOwned = false
+        };
+    }
+
+    /// <summary>Builds the manifest wrapper the Dreamcast validator and stager both need.</summary>
+    static PlatformBuildManifest CreateManifest(PlatformBuildArtifact artifact, PlatformBuildArtifact[] additionalArtifacts) {
+        PlatformBuildArtifact[] artifacts = [artifact, .. additionalArtifacts ?? []];
+        PlatformBuildScene scene = new(
+            "startup",
+            "Startup",
+            "scenes/startup.helen",
+            [new PlatformBuildPayloadReference("startup", "scenes/startup.helen")],
+            [new KeyValuePair<string, string>(PlatformBuildSceneMetadataKeys.CookedRelativePath, "cooked/scenes/startup.hasset")]);
+        return new PlatformBuildManifest(
+            1,
+            "dreamcast-test",
+            "1.0.0",
+            "0.4.0",
+            "dc",
+            "0.2.0",
+            "startup",
+            [scene],
+            [],
+            artifacts,
+            [],
+            [],
+            new PlatformContainerWritePlan("dc-romfs-package", []),
+            [],
+            PlatformBuildRuntimeFeatureManifest.Empty);
+    }
+
+    /// <summary>Deletes the temporary directory tree backing this cooked content.</summary>
+    public void Dispose() {
+        if (Directory.Exists(RootPath)) {
+            Directory.Delete(RootPath, recursive: true);
+        }
+    }
 
     /// <summary>Writes a valid one-camera/one-mesh package below <paramref name="packageRoot"/> and returns its manifest artifacts.</summary>
     public static PlatformBuildArtifact[] WriteValidPackage(string packageRoot) {

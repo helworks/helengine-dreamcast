@@ -54,6 +54,21 @@ public sealed class DreamcastContentStagerTests {
         Assert.Equal(3, paths.Count);
     }
 
+    /// <summary>Confirms a cooked texture is converted into the Dreamcast format rather than skipped.</summary>
+    [Fact]
+    public void Stage_ConvertsCookedTexturesIntoTheDreamcastFormat() {
+        using DreamcastCookedTestContent content = DreamcastCookedTestContent.CreateWithTexture();
+
+        IReadOnlyList<string> stagedPaths = new DreamcastContentStager().Stage(
+            content.Manifest, content.SourceRoot, content.DestinationRoot, CancellationToken.None);
+
+        string staged = Path.Combine(content.DestinationRoot, "textures", "icon.hasset");
+        Assert.Contains("textures/icon.hasset", stagedPaths);
+        Assert.True(File.Exists(staged));
+        byte[] bytes = File.ReadAllBytes(staged);
+        Assert.Equal(DreamcastTextureSchemaIds.Magic, BitConverter.ToUInt32(bytes, 0));
+    }
+
     /// <summary>Rejects a declaration that cannot be associated with one exact cooked file.</summary>
     [Fact]
     public void StageRejectsMissingDeclaredArtifactWithoutLoneFileFallback() {
