@@ -6,10 +6,13 @@ namespace helengine.dreamcast.builder;
 
 /// <summary>Copies only manifest-declared, runtime-loadable cooked artifacts into a deterministic ROMFS staging tree.</summary>
 /// <remarks>
-/// The Dreamcast v0.2 runtime can load scenes, models and platform materials only. Declared artifacts of any
-/// other serialized type (textures, fonts, audio, imported blobs) are still required to exist but are not
-/// staged, because the runtime could never open them and the ROMFS is resident in console RAM. The omitted
-/// paths are exposed through <see cref="LastSkippedRelativePaths"/> for diagnostics.
+/// The Dreamcast v0.2 runtime can load scenes, models, platform materials and textures. Scenes, models and
+/// platform materials copy verbatim, byte for byte. Textures are converted through
+/// <see cref="DreamcastTextureCooker"/> into twiddled ARGB4444 <c>dc-texture-v1</c> bytes before staging, since
+/// the source pixel format is never something the PVR can sample directly. Declared artifacts of any other
+/// serialized type (fonts, audio, imported blobs) are still required to exist but are not staged, because the
+/// runtime could never open them and the ROMFS is resident in console RAM. The omitted paths are exposed through
+/// <see cref="LastSkippedRelativePaths"/> for diagnostics.
 /// </remarks>
 public sealed class DreamcastContentStager {
     const long MaximumPayloadBytes = 1024 * 1024;
@@ -75,14 +78,16 @@ public sealed class DreamcastContentStager {
                 throw new FileNotFoundException($"Declared cooked artifact is missing: {relativePath}", sourcePath);
             }
 
-            if (!IsRuntimeLoadable(sourcePath)) {
+            ArtifactStageKind kind = ClassifyRuntimeLoadable(sourcePath, out helengine.TextureAsset? texture);
+            if (kind == ArtifactStageKind.NotLoadable) {
                 skippedPaths.Add(relativePath);
                 continue;
             }
 
-            if (TryReadTexture(sourcePath, out helengine.TextureAsset? texture)) {
+            if (kind == ArtifactStageKind.Texture) {
+                using helengine.TextureAsset ownedTexture = texture!;
                 VerifyHash(artifact, sourcePath);
-                byte[] converted = new DreamcastTextureCooker().Cook(texture!);
+                byte[] converted = new DreamcastTextureCooker().Cook(ownedTexture);
                 if (converted.Length > MaximumPayloadBytes || converted.Length > MaximumPayloadBytes - totalBytes) {
                     throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
                 }
@@ -121,33 +126,53 @@ public sealed class DreamcastContentStager {
         return stagedPaths;
     }
 
-    /// <summary>Returns true when the cooked file deserializes as a scene, model, platform material or texture.</summary>
-    static bool IsRuntimeLoadable(string sourcePath) {
-        byte[] bytes = File.ReadAllBytes(sourcePath);
-        if (bytes.Length < 4 || bytes[0] != (byte)'H' || bytes[1] != (byte)'E' || bytes[2] != (byte)'L' || bytes[3] != (byte)'E') {
-            return false;
-        }
-        try {
-            Asset asset = AssetSerializer.DeserializeFromBytes(bytes);
-            return asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset || asset is TextureAsset;
-        } catch (Exception exception) when (exception is not OutOfMemoryException) {
-            return false;
-        }
+    /// <summary>Distinguishes how a cooked artifact should be staged, decided by a single deserialization of its bytes.</summary>
+    enum ArtifactStageKind {
+        /// <summary>The runtime cannot open this artifact type; it must exist but is left out of the ROMFS.</summary>
+        NotLoadable,
+
+        /// <summary>A scene, model or platform material: staged by copying its bytes verbatim.</summary>
+        VerbatimCopy,
+
+        /// <summary>A texture: staged by converting it through <see cref="DreamcastTextureCooker"/>.</summary>
+        Texture
     }
 
-    /// <summary>Returns the deserialized texture when the file is one, otherwise false.</summary>
-    static bool TryReadTexture(string sourcePath, out helengine.TextureAsset? texture) {
+    /// <summary>
+    /// Deserializes the cooked file exactly once and classifies it. When the result is
+    /// <see cref="ArtifactStageKind.Texture"/>, <paramref name="texture"/> is the deserialized instance and
+    /// ownership passes to the caller, who must dispose it. Any other deserialized instance that implements
+    /// <see cref="IDisposable"/> (for example <c>ModelAsset</c>) is disposed here, before returning, since the
+    /// verbatim-copy and skip paths never need the instance itself.
+    /// </summary>
+    static ArtifactStageKind ClassifyRuntimeLoadable(string sourcePath, out helengine.TextureAsset? texture) {
         texture = null;
         byte[] bytes = File.ReadAllBytes(sourcePath);
         if (bytes.Length < 4 || bytes[0] != (byte)'H' || bytes[1] != (byte)'E' || bytes[2] != (byte)'L' || bytes[3] != (byte)'E') {
-            return false;
+            return ArtifactStageKind.NotLoadable;
         }
+
+        Asset asset;
         try {
-            texture = AssetSerializer.DeserializeFromBytes(bytes) as helengine.TextureAsset;
-            return texture != null;
+            asset = AssetSerializer.DeserializeFromBytes(bytes);
         } catch (Exception exception) when (exception is not OutOfMemoryException) {
-            return false;
+            return ArtifactStageKind.NotLoadable;
         }
+
+        if (asset is helengine.TextureAsset textureAsset) {
+            texture = textureAsset;
+            return ArtifactStageKind.Texture;
+        }
+        if (asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset) {
+            if (asset is IDisposable loadableDisposable) {
+                loadableDisposable.Dispose();
+            }
+            return ArtifactStageKind.VerbatimCopy;
+        }
+        if (asset is IDisposable unrecognizedDisposable) {
+            unrecognizedDisposable.Dispose();
+        }
+        return ArtifactStageKind.NotLoadable;
     }
 
     static string ResolveUnderRoot(string root, string relativePath) {
