@@ -93,6 +93,7 @@ all: $(GENERATED_SOURCE_LIST)
 AUTHORED_SOURCES := \
     src/platform/dreamcast/DreamcastContentPath.cpp \
     src/platform/dreamcast/DreamcastContentStreamSource.cpp \
+    src/platform/dreamcast/DreamcastTextureFormat.cpp \
     src/platform/dreamcast/DreamcastInputBackend.cpp \
     src/platform/dreamcast/DreamcastRenderManager2D.cpp \
     src/platform/dreamcast/DreamcastRenderManager3D.cpp \
@@ -218,12 +219,17 @@ host-test:
 		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
 		src/platform/dreamcast/DreamcastCubeMesh.cpp \
 		-o $(BUILD_ROOT)/dreamcast-authored-submission-tests
+	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
+		tests/native/DreamcastTextureFormatTests.cpp \
+		src/platform/dreamcast/DreamcastTextureFormat.cpp \
+		-o $(BUILD_ROOT)/dreamcast-texture-format-tests
 	$(BUILD_ROOT)/dreamcast-geometry-tests
 	$(BUILD_ROOT)/dreamcast-authored-transform-tests
 	$(BUILD_ROOT)/dreamcast-authored-mesh-tests
 	$(BUILD_ROOT)/dreamcast-raster-seam-tests
 	$(BUILD_ROOT)/dreamcast-content-path-tests
 	$(BUILD_ROOT)/dreamcast-authored-submission-tests
+	$(BUILD_ROOT)/dreamcast-texture-format-tests
 
 clean:
 	-rm -rf "$(OBJ_ROOT)" "$(ELF)" "$(MAP)"
