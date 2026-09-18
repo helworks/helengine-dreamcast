@@ -241,7 +241,8 @@ public:
     explicit RasterFrameSink(DreamcastRasterRenderer& renderer) noexcept : renderer_(renderer) {
     }
 
-    bool present(const GeometryFrame& geometry, const ColorRgba& clearColor) noexcept override {
+    bool present(const GeometryFrame& geometry, const SpriteFrame& /*sprites*/,
+                const ColorRgba& clearColor) noexcept override {
         return renderer_.renderFrame(geometry, clearColor);
     }
 

@@ -29,9 +29,11 @@ bool near(float left, float right, float epsilon = 1.0e-3f) {
 /// Records every presentation so tests can prove the exactly-once contract.
 class RecordingSink final : public IAuthoredFrameSink {
 public:
-    bool present(const GeometryFrame& geometry, const ColorRgba& clearColor) noexcept override {
+    bool present(const GeometryFrame& geometry, const SpriteFrame& sprites,
+                const ColorRgba& clearColor) noexcept override {
         ++presentCount;
         lastTriangleCount = geometry.triangleCount;
+        lastSpriteCount = sprites.spriteCount;
         lastClear = clearColor;
         if (geometry.triangleCount != 0) {
             lastFirstColor = geometry.triangles[0].vertices[0].color;
@@ -42,6 +44,7 @@ public:
     bool accept = true;
     int presentCount = 0;
     std::uint16_t lastTriangleCount = 0;
+    std::uint16_t lastSpriteCount = 0;
     ColorRgba lastClear{};
     ColorRgba lastFirstColor{};
 };

@@ -223,6 +223,13 @@ host-test:
 		tests/native/DreamcastTextureFormatTests.cpp \
 		src/platform/dreamcast/DreamcastTextureFormat.cpp \
 		-o $(BUILD_ROOT)/dreamcast-texture-format-tests
+	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
+		tests/native/DreamcastSpriteSubmissionTests.cpp \
+		src/platform/dreamcast/DreamcastAuthoredFrame.cpp \
+		src/platform/dreamcast/DreamcastAuthoredTransform.cpp \
+		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
+		src/platform/dreamcast/DreamcastCubeMesh.cpp \
+		-o $(BUILD_ROOT)/dreamcast-sprite-submission-tests
 	$(BUILD_ROOT)/dreamcast-geometry-tests
 	$(BUILD_ROOT)/dreamcast-authored-transform-tests
 	$(BUILD_ROOT)/dreamcast-authored-mesh-tests
@@ -230,6 +237,7 @@ host-test:
 	$(BUILD_ROOT)/dreamcast-content-path-tests
 	$(BUILD_ROOT)/dreamcast-authored-submission-tests
 	$(BUILD_ROOT)/dreamcast-texture-format-tests
+	$(BUILD_ROOT)/dreamcast-sprite-submission-tests
 
 clean:
 	-rm -rf "$(OBJ_ROOT)" "$(ELF)" "$(MAP)"

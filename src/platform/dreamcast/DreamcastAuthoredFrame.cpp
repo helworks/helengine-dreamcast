@@ -73,6 +73,10 @@ const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept {
         return "geometry-failed";
     case AuthoredFrameStatus::PresentFailed:
         return "present-failed";
+    case AuthoredFrameStatus::TooManySprites:
+        return "too-many-sprites";
+    case AuthoredFrameStatus::InvalidSprite:
+        return "invalid-sprite";
     }
     return "unknown";
 }
@@ -90,6 +94,7 @@ void AuthoredFrameAssembler::begin(float viewportWidth, float viewportHeight) no
     firstFailure_ = AuthoredFrameStatus::Ok;
     summary_ = AuthoredFrameSummary{};
     lights_ = AuthoredLightState{};
+    sprites_ = SpriteFrame{};
     resetGeometryFrame(*frame_);
 }
 
@@ -202,6 +207,41 @@ AuthoredFrameStatus AuthoredFrameAssembler::addDrawable(const AuthoredDrawState&
     return AuthoredFrameStatus::Ok;
 }
 
+AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState& sprite) noexcept {
+    const auto fail = [this](AuthoredFrameStatus status) noexcept {
+        if (firstFailure_ == AuthoredFrameStatus::Ok) {
+            firstFailure_ = status;
+        }
+        return status;
+    };
+    if (!began_) {
+        return fail(AuthoredFrameStatus::NotStarted);
+    }
+    // Bounds check happens before any write, mirroring setLights: an overflow
+    // is recorded as a count one past the maximum rather than a write.
+    if (sprites_.spriteCount >= kMaxSprites) {
+        ++summary_.spriteCount;
+        return fail(AuthoredFrameStatus::TooManySprites);
+    }
+    if (!finite(sprite.destinationX) || !finite(sprite.destinationY) ||
+        !finite(sprite.destinationWidth) || !finite(sprite.destinationHeight) ||
+        !finite(sprite.sourceU0) || !finite(sprite.sourceV0) || !finite(sprite.sourceU1) ||
+        !finite(sprite.sourceV1) || !finiteColor(sprite.tint) ||
+        sprite.destinationWidth <= 0.0f || sprite.destinationHeight <= 0.0f ||
+        sprite.texture == nullptr ||
+        sprite.sourceU0 < 0.0f || sprite.sourceU0 > 1.0f ||
+        sprite.sourceV0 < 0.0f || sprite.sourceV0 > 1.0f ||
+        sprite.sourceU1 < 0.0f || sprite.sourceU1 > 1.0f ||
+        sprite.sourceV1 < 0.0f || sprite.sourceV1 > 1.0f ||
+        sprite.sourceU1 <= sprite.sourceU0 || sprite.sourceV1 <= sprite.sourceV0) {
+        return fail(AuthoredFrameStatus::InvalidSprite);
+    }
+    sprites_.sprites[sprites_.spriteCount] = sprite;
+    ++sprites_.spriteCount;
+    summary_.spriteCount = sprites_.spriteCount;
+    return AuthoredFrameStatus::Ok;
+}
+
 AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) noexcept {
     if (!began_) {
         return AuthoredFrameStatus::NotStarted;
@@ -275,7 +315,7 @@ AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) no
     summary_.triangleCount = frame_->triangleCount;
     summary_.clippedTriangleCount = frame_->clippedTriangleCount;
     summary_.rejectedTriangleCount = frame_->rejectedTriangleCount;
-    if (!sink.present(*frame_, camera_.clearColor)) {
+    if (!sink.present(*frame_, sprites_, camera_.clearColor)) {
         return AuthoredFrameStatus::PresentFailed;
     }
     return AuthoredFrameStatus::Ok;
@@ -287,6 +327,10 @@ const AuthoredFrameSummary& AuthoredFrameAssembler::summary() const noexcept {
 
 const GeometryFrame& AuthoredFrameAssembler::geometry() const noexcept {
     return *frame_;
+}
+
+const SpriteFrame& AuthoredFrameAssembler::sprites() const noexcept {
+    return sprites_;
 }
 
 } // namespace helengine::dreamcast

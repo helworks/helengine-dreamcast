@@ -2,6 +2,7 @@
 
 #include "DreamcastAuthoredTransform.hpp"
 #include "DreamcastGeometryPipeline.hpp"
+#include "DreamcastSpriteFrame.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -91,6 +92,8 @@ enum class AuthoredFrameStatus : std::uint8_t {
     LitMeshWithoutNormals,
     GeometryFailed,
     PresentFailed,
+    TooManySprites,
+    InvalidSprite,
 };
 
 const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept;
@@ -105,6 +108,7 @@ struct AuthoredFrameSummary {
     std::uint16_t clippedTriangleCount;
     std::uint16_t rejectedTriangleCount;
     ColorRgba clearColor;
+    std::uint16_t spriteCount;
 };
 
 /// Receives exactly one validated frame per successful assembly.
@@ -112,6 +116,7 @@ class IAuthoredFrameSink {
 public:
     virtual ~IAuthoredFrameSink() = default;
     virtual bool present(const GeometryFrame& geometry,
+                         const SpriteFrame& sprites,
                          const ColorRgba& clearColor) noexcept = 0;
 };
 
@@ -127,10 +132,12 @@ public:
     AuthoredFrameStatus setCamera(const AuthoredCameraState& camera) noexcept;
     AuthoredFrameStatus setLights(const AuthoredLightState& lights) noexcept;
     AuthoredFrameStatus addDrawable(const AuthoredDrawState& drawable) noexcept;
+    AuthoredFrameStatus addSprite(const AuthoredSpriteState& sprite) noexcept;
     AuthoredFrameStatus present(IAuthoredFrameSink& sink) noexcept;
 
     const AuthoredFrameSummary& summary() const noexcept;
     const GeometryFrame& geometry() const noexcept;
+    const SpriteFrame& sprites() const noexcept;
 
 private:
     static constexpr std::uint16_t kMaxVertices = 64;
@@ -140,6 +147,7 @@ private:
     AuthoredCameraState camera_{};
     AuthoredLightState lights_{};
     AuthoredDrawState drawable_{};
+    SpriteFrame sprites_{};
     AuthoredFrameSummary summary_{};
     float viewportWidth_ = 0.0f;
     float viewportHeight_ = 0.0f;
