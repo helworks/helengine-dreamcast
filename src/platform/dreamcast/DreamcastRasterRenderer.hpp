@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DreamcastGeometryPipeline.hpp"
+#include "DreamcastSpriteFrame.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -167,6 +168,45 @@ void setDiagnosticShutdownResult(std::uint32_t result) noexcept;
 /// The diagnostic host's fixed dark clear color; authored frames supply their own.
 constexpr ColorRgba kDiagnosticClearColor{0.015f, 0.020f, 0.040f, 1.0f};
 
+/// The concrete type behind `AuthoredSpriteState::texture`.
+///
+/// `AuthoredSpriteState` keeps the handle opaque so the sprite contract stays
+/// free of console SDK types and remains host-compilable; this is the layout
+/// the raster stage casts it back to. It holds exactly what
+/// `pvr_poly_cxt_txr()` needs: the video-memory address of the twiddled
+/// ARGB4444 payload and the power-of-two square side it was cooked at. The
+/// used extent is carried alongside because the cooked header records it and
+/// engine code reasons about it, not because the raster stage reads it; the
+/// authored source rectangle is already normalized against the padded side.
+struct SpriteTexture {
+    /// Video-memory address of the pixel payload; a KOS `pvr_ptr_t`.
+    void* vram = nullptr;
+    /// Power-of-two square side the payload is stored at, 8..1024.
+    std::uint16_t paddedSide = 0;
+    /// Real image width within the padded square.
+    std::uint16_t usedWidth = 0;
+    /// Real image height within the padded square.
+    std::uint16_t usedHeight = 0;
+};
+
+namespace renderer_detail {
+
+/// Constant 1/w every sprite vertex carries.
+///
+/// Sprites are a screen-space overlay, so a single depth for all four corners
+/// of every quad keeps texture interpolation affine and exact, and keeps
+/// overlay sprites from depth-fighting one another. The value is larger than
+/// any 1/w a realistic near plane can produce, so it also reads as "nearest"
+/// under the scene's PVR_DEPTHCMP_GREATER convention.
+constexpr float kSpriteDepth = 1000.0f;
+
+/// Smallest and largest square side pvr_poly_compile() can encode; it derives
+/// the U/V size field as `__builtin_ctz(side) - 3`, which underflows below 8.
+constexpr std::uint16_t kMinSpriteTextureSide = 8;
+constexpr std::uint16_t kMaxSpriteTextureSide = 1024;
+
+} // namespace renderer_detail
+
 class DreamcastRasterRenderer {
 public:
     bool initialize(const VideoState& video, const RendererConfig& config) noexcept;
@@ -175,6 +215,15 @@ public:
     /// Presents one validated frame, clearing to the given authored color first.
     /// Exactly one scene begin/end pair is issued per call.
     bool renderFrame(const GeometryFrame& geometry, const ColorRgba& clearColor) noexcept;
+    /// Presents one validated frame plus its screen-space sprite overlay.
+    ///
+    /// The sprites are drawn into the PVR translucent list after the opaque
+    /// geometry and inside the same scene, so exactly one scene begin/end pair
+    /// is issued per call. The translucent list is opened only when the frame
+    /// carries at least one sprite.
+    bool renderFrame(const GeometryFrame& geometry,
+                     const SpriteFrame& sprites,
+                     const ColorRgba& clearColor) noexcept;
     /// Blocks until the PVR has finished the last submitted scene, so owned
     /// geometry can be released without a pending render referencing it.
     bool waitIdle() noexcept;
@@ -182,6 +231,9 @@ public:
     void shutdown() noexcept;
 
 private:
+    /// Submits every sprite into an already opened translucent list.
+    bool submitSprites(const SpriteFrame& sprites) noexcept;
+
     bool initialized_ = false;
     RendererConfig config_{};
     RendererDiagnostics diagnostics_{};

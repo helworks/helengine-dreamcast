@@ -84,6 +84,84 @@ bool validGeometryFrame(const GeometryFrame& geometry) noexcept {
     return true;
 }
 
+/// An empty overlay, shared by the sprite-less renderFrame() overloads.
+///
+/// SpriteFrame is a few kilobytes of fixed storage, so the diagnostic path
+/// reads one immutable copy in .rodata rather than zeroing a stack frame
+/// every time it presents.
+constexpr SpriteFrame kEmptySpriteFrame{};
+
+bool isPowerOfTwo(std::uint16_t value) noexcept {
+    return value != 0 && (value & static_cast<std::uint16_t>(value - 1u)) == 0;
+}
+
+bool validSpriteTexture(const SpriteTexture& texture) noexcept {
+    // pvr_poly_compile() encodes the U/V size as __builtin_ctz(side) - 3 and
+    // only asserts on the way, so a side that is zero, not a power of two or
+    // out of range would compile a header pointing the TA at nonsense.
+    return texture.vram != nullptr &&
+           texture.paddedSide >= renderer_detail::kMinSpriteTextureSide &&
+           texture.paddedSide <= renderer_detail::kMaxSpriteTextureSide &&
+           isPowerOfTwo(texture.paddedSide);
+}
+
+/// True when the source rectangle is a nondegenerate sub-rectangle of the
+/// padded texture. Written as positive comparisons so a NaN falls through to
+/// false rather than passing a negated test.
+bool validSourceSpan(float low, float high) noexcept {
+    return low >= 0.0f && high <= 1.0f && low < high;
+}
+
+bool validSprite(const AuthoredSpriteState& sprite) noexcept {
+    if (sprite.texture == nullptr ||
+        !validSpriteTexture(*static_cast<const SpriteTexture*>(sprite.texture))) {
+        return false;
+    }
+    if (!std::isfinite(sprite.destinationX) || !std::isfinite(sprite.destinationY) ||
+        !(sprite.destinationWidth > 0.0f) || !(sprite.destinationHeight > 0.0f)) {
+        return false;
+    }
+    // The far edges are what the raster stage actually emits, and a finite
+    // origin plus a finite extent can still overflow to infinity.
+    if (!std::isfinite(sprite.destinationX + sprite.destinationWidth) ||
+        !std::isfinite(sprite.destinationY + sprite.destinationHeight)) {
+        return false;
+    }
+    return validSourceSpan(sprite.sourceU0, sprite.sourceU1) &&
+           validSourceSpan(sprite.sourceV0, sprite.sourceV1) && finite(sprite.tint);
+}
+
+bool validSpriteFrame(const SpriteFrame& sprites) noexcept {
+    if (sprites.spriteCount > kMaxSprites) {
+        return false;
+    }
+    for (std::uint16_t i = 0; i < sprites.spriteCount; ++i) {
+        if (!validSprite(sprites.sprites[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+renderer_detail::VertexPacket makeSpriteVertexPacket(float x,
+                                                     float y,
+                                                     float u,
+                                                     float v,
+                                                     std::uint32_t argb,
+                                                     bool endOfLine) noexcept {
+    renderer_detail::VertexPacket packet{};
+    packet.flags = endOfLine ? renderer_detail::kVertexCommandEol
+                             : renderer_detail::kVertexCommand;
+    packet.x = x;
+    packet.y = y;
+    packet.z = renderer_detail::kSpriteDepth;
+    packet.u = u;
+    packet.v = v;
+    packet.argb = argb;
+    packet.oargb = 0;
+    return packet;
+}
+
 float clampUnit(float value) noexcept {
     if (!std::isfinite(value) || value <= 0.0f) {
         return 0.0f;
@@ -153,19 +231,28 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
     }
 
     // KOS's pvr_default_params has 512 KiB of vertex storage and enables the
-    // translucent list. Copy it, then keep only the opaque list with a small
-    // fixed buffer suitable for this renderer. PVR direct pvr_prim() submission
-    // is used below; no DMA or store-queue calls are issued by the application.
+    // opaque and translucent lists. Copy it, then keep those two with a small
+    // fixed buffer suitable for this renderer: index 0 is opaque polygons and
+    // index 2 is translucent polygons, which the sprite overlay draws into.
+    // An enabled list that a frame never opens costs nothing beyond its bins,
+    // because pvr_scene_finish() closes it with a blank header. PVR direct
+    // pvr_prim() submission is used below; no DMA or store-queue calls are
+    // issued by the application.
     pvr_init_params_t params = pvr_default_params;
     params.opb_sizes[0] = PVR_BINSIZE_16;
     params.opb_sizes[1] = PVR_BINSIZE_0;
-    params.opb_sizes[2] = PVR_BINSIZE_0;
+    params.opb_sizes[2] = PVR_BINSIZE_16;
     params.opb_sizes[3] = PVR_BINSIZE_0;
     params.opb_sizes[4] = PVR_BINSIZE_0;
     params.vertex_buf_size = static_cast<int>(kConservativeVertexBufferBytes);
     params.dma_enabled = 0;
     params.fsaa_enabled = 0;
-    params.autosort_disabled = 0;
+    // Translucent autosorting reorders the list by depth. Every sprite carries
+    // the same constant 1/w, so autosorting could only pick an arbitrary order
+    // among them; disabling it makes the hardware honor submission order,
+    // which is what a painter's-order overlay needs. This affects the
+    // translucent list only, never the opaque geometry pass.
+    params.autosort_disabled = 1;
     params.opb_overflow_count = 1;
     params.vbuf_doublebuf_disabled = 0;
 
@@ -228,7 +315,81 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
 }
 
 bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry) noexcept {
-    return renderFrame(geometry, kDiagnosticClearColor);
+    return renderFrame(geometry, kEmptySpriteFrame, kDiagnosticClearColor);
+}
+
+bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
+                                          const ColorRgba& clearColor) noexcept {
+    return renderFrame(geometry, kEmptySpriteFrame, clearColor);
+}
+
+bool DreamcastRasterRenderer::submitSprites(const SpriteFrame& sprites) noexcept {
+    for (std::uint16_t index = 0; index < sprites.spriteCount; ++index) {
+        // Submission order is the authored order; the translucent list is not
+        // autosorted, so the last sprite submitted is the one on top.
+        const AuthoredSpriteState& sprite = sprites.sprites[index];
+        const SpriteTexture& texture = *static_cast<const SpriteTexture*>(sprite.texture);
+
+        // Every sprite binds its own texture, so unlike the opaque pass there
+        // is no header that can be cached: one context is built and compiled
+        // per sprite, per frame.
+        pvr_poly_cxt_t context{};
+        pvr_poly_cxt_txr(&context, PVR_LIST_TR_POLY,
+                         PVR_TXRFMT_ARGB4444 | PVR_TXRFMT_TWIDDLED,
+                         static_cast<int>(texture.paddedSide),
+                         static_cast<int>(texture.paddedSide), texture.vram,
+                         PVR_FILTER_BILINEAR);
+        // pvr_poly_cxt_txr() already picks the translucent defaults this pass
+        // wants: gen.alpha on, SRCALPHA/INVSRCALPHA blending, MODULATEALPHA so
+        // the tint scales the texel including its alpha, and texture alpha
+        // enabled. Only the overlay-specific state is overridden here.
+        //
+        // Culling is off because a sprite is an axis-aligned screen-space quad
+        // whose winding is a property of the emitted corner order, not of any
+        // authored face; the opaque pass's winding choice must not reach it.
+        context.gen.culling = PVR_CULLING_NONE;
+        context.gen.clip_mode = PVR_USERCLIP_DISABLE;
+        // Always pass: an overlay is on top of the scene whatever the depth
+        // buffer holds. PVR_DEPTHWRITE_DISABLE is 1, not 0 - the compiled bit
+        // is "disable depth writes" - so this leaves the 3D depth buffer
+        // untouched and keeps sprites from depth-fighting each other.
+        context.depth.comparison = PVR_DEPTHCMP_ALWAYS;
+        context.depth.write = PVR_DEPTHWRITE_DISABLE;
+        // The authored source rectangle is normalized against the padded
+        // square, so U and V stay inside [0,1]; clamping keeps a corner that
+        // lands exactly on 1.0 from wrapping back onto the opposite edge.
+        context.txr.uv_clamp = PVR_UVCLAMP_UV;
+
+        // pvr_poly_hdr_t is a 32-byte cache-line-aligned type, which is what
+        // pvr_poly_compile() needs: it allocates the destination's cache line
+        // outright rather than reading it. Compiling into the real type rather
+        // than a byte buffer is what guarantees that alignment on the stack.
+        pvr_poly_hdr_t header{};
+        pvr_poly_compile(&header, &context);
+        if (pvr_prim(&header, sizeof(header)) != 0) {
+            return false;
+        }
+
+        const float left = sprite.destinationX;
+        const float top = sprite.destinationY;
+        const float right = left + sprite.destinationWidth;
+        const float bottom = top + sprite.destinationHeight;
+        const std::uint32_t tint = renderer_detail::packColor(sprite.tint);
+        // Four vertices as one strip: top-left, top-right, bottom-left,
+        // bottom-right. That is the two triangles of the quad.
+        const renderer_detail::VertexPacket corners[4] = {
+            makeSpriteVertexPacket(left, top, sprite.sourceU0, sprite.sourceV0, tint, false),
+            makeSpriteVertexPacket(right, top, sprite.sourceU1, sprite.sourceV0, tint, false),
+            makeSpriteVertexPacket(left, bottom, sprite.sourceU0, sprite.sourceV1, tint, false),
+            makeSpriteVertexPacket(right, bottom, sprite.sourceU1, sprite.sourceV1, tint, true),
+        };
+        for (const renderer_detail::VertexPacket& corner : corners) {
+            if (pvr_prim(&corner, sizeof(corner)) != 0) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool DreamcastRasterRenderer::waitIdle() noexcept {
@@ -248,8 +409,10 @@ bool DreamcastRasterRenderer::waitIdle() noexcept {
 }
 
 bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
+                                          const SpriteFrame& sprites,
                                           const ColorRgba& clearColor) noexcept {
-    if (!initialized_ || !validGeometryFrame(geometry) || !finite(clearColor)) {
+    if (!initialized_ || !validGeometryFrame(geometry) || !validSpriteFrame(sprites) ||
+        !finite(clearColor)) {
         renderer_detail::setDiagnosticError(kDiagnosticErrorSubmission);
         return false;
     }
@@ -302,6 +465,22 @@ bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
         ok = false;
     }
     listStarted = false;
+
+    // The sprite overlay is a second list inside the same scene. It is opened
+    // only when there is something to draw: an empty pass would still cost a
+    // list registration for nothing.
+    if (ok && sprites.spriteCount != 0) {
+        if (pvr_list_begin(PVR_LIST_TR_POLY) != 0) {
+            dbglog(DBG_ERROR, "DreamcastRasterRenderer: translucent pvr_list_begin failed\n");
+            ok = false;
+        } else {
+            ok = submitSprites(sprites);
+            if (pvr_list_finish() != 0) {
+                ok = false;
+            }
+        }
+    }
+
     if (sceneStarted && pvr_scene_finish() != 0) {
         ok = false;
     }
