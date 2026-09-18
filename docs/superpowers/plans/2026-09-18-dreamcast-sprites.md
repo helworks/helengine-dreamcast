@@ -499,11 +499,11 @@ Add to `builder.tests/DreamcastContentStagerTests.cs`:
     public void Stage_ConvertsCookedTexturesIntoTheDreamcastFormat() {
         using DreamcastCookedTestContent content = DreamcastCookedTestContent.CreateWithTexture();
 
-        DreamcastContentStageResult result = new DreamcastContentStager().Stage(
+        IReadOnlyList<string> stagedPaths = new DreamcastContentStager().Stage(
             content.Manifest, content.SourceRoot, content.DestinationRoot, CancellationToken.None);
 
         string staged = Path.Combine(content.DestinationRoot, "textures", "icon.hasset");
-        Assert.Contains("textures/icon.hasset", result.StagedPaths);
+        Assert.Contains("textures/icon.hasset", stagedPaths);
         Assert.True(File.Exists(staged));
         byte[] bytes = File.ReadAllBytes(staged);
         Assert.Equal(DreamcastTextureSchemaIds.Magic, BitConverter.ToUInt32(bytes, 0));
