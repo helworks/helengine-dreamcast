@@ -7,6 +7,13 @@ namespace {
 
 constexpr float kViewportEpsilon = 1.0e-6f;
 
+// A destination rectangle edge is rejected once it strays this many viewport
+// widths/heights away from the viewport. This is a sanity bound, not a clip:
+// it exists to exclude values that cannot be real screen coordinates (for
+// example ones that overflow to infinity once the raster stage adds width to
+// x), not to reject legitimate off-screen sprites.
+constexpr float kSpriteDestinationBoundsMultiple = 16.0f;
+
 bool finite(float value) noexcept {
     return std::isfinite(value);
 }
@@ -217,10 +224,13 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
     if (!began_) {
         return fail(AuthoredFrameStatus::NotStarted);
     }
-    // Bounds check happens before any write, mirroring setLights: an overflow
-    // is recorded as a count one past the maximum rather than a write.
+    // The bounds check happens before any write, as in setLights. Unlike
+    // setLights, which tracks no count on overflow, this mirrors how
+    // setCamera/addDrawable report a cardinality violation: the summary
+    // count is pinned at exactly one past the maximum, not incremented again
+    // on every further overflowing call.
     if (sprites_.spriteCount >= kMaxSprites) {
-        ++summary_.spriteCount;
+        summary_.spriteCount = kMaxSprites + 1;
         return fail(AuthoredFrameStatus::TooManySprites);
     }
     if (!finite(sprite.destinationX) || !finite(sprite.destinationY) ||
@@ -234,6 +244,20 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
         sprite.sourceU1 < 0.0f || sprite.sourceU1 > 1.0f ||
         sprite.sourceV1 < 0.0f || sprite.sourceV1 > 1.0f ||
         sprite.sourceU1 <= sprite.sourceU0 || sprite.sourceV1 <= sprite.sourceV0) {
+        return fail(AuthoredFrameStatus::InvalidSprite);
+    }
+    // The destination rectangle must lie within a generous multiple of the
+    // viewport. A value out here cannot be a real screen coordinate, and
+    // left unchecked it can overflow to infinity once the raster stage adds
+    // width/height to x/y.
+    const float boundX = kSpriteDestinationBoundsMultiple * viewportWidth_;
+    const float boundY = kSpriteDestinationBoundsMultiple * viewportHeight_;
+    const float destinationRight = sprite.destinationX + sprite.destinationWidth;
+    const float destinationBottom = sprite.destinationY + sprite.destinationHeight;
+    if (sprite.destinationX < -boundX || sprite.destinationX > boundX ||
+        sprite.destinationY < -boundY || sprite.destinationY > boundY ||
+        destinationRight < -boundX || destinationRight > boundX ||
+        destinationBottom < -boundY || destinationBottom > boundY) {
         return fail(AuthoredFrameStatus::InvalidSprite);
     }
     sprites_.sprites[sprites_.spriteCount] = sprite;

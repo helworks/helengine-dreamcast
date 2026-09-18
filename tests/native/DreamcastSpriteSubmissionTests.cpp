@@ -128,7 +128,7 @@ void SixtyFifthSpriteFails() {
 void InvalidSpritesFailBeforeAnyPresentation() {
     RecordingSink sink;
     const float nan = std::numeric_limits<float>::quiet_NaN();
-    AuthoredSpriteState cases[6] = {validSprite(), validSprite(), validSprite(),
+    AuthoredSpriteState cases[7] = {validSprite(), validSprite(), validSprite(),   validSprite(),
                                     validSprite(), validSprite(), validSprite()};
     cases[0].destinationX = nan;
     cases[1].destinationWidth = 0.0f;   // zero extent draws nothing; reject rather than emit
@@ -136,6 +136,11 @@ void InvalidSpritesFailBeforeAnyPresentation() {
     cases[3].sourceU1 = 1.5f;           // outside the used sub-rectangle
     cases[4].sourceU1 = cases[4].sourceU0; // degenerate source
     cases[5].tint = ColorRgba{nan, 0.0f, 0.0f, 1.0f};
+    // Finite but absurd: cannot be a real screen coordinate, and left
+    // unchecked would overflow to infinity once the raster stage adds
+    // destinationWidth to destinationX.
+    cases[6].destinationX = 1.0e30f;
+    cases[6].destinationWidth = 3.0e38f;
     for (const AuthoredSpriteState& sprite : cases) {
         AuthoredFrameAssembler assembler;
         assembler.begin(640.0f, 480.0f);
