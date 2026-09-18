@@ -94,6 +94,7 @@ enum class AuthoredFrameStatus : std::uint8_t {
     PresentFailed,
     TooManySprites,
     InvalidSprite,
+    InvalidViewport,
 };
 
 const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept;
@@ -151,6 +152,13 @@ private:
     AuthoredFrameSummary summary_{};
     float viewportWidth_ = 0.0f;
     float viewportHeight_ = 0.0f;
+    // Set by begin(): true only when viewportWidth_/viewportHeight_ are both
+    // finite and strictly positive. Every downstream consumer of those two
+    // fields (the sprite destination bound, the geometry projection in
+    // present()) must check this before trusting them; an unguarded NaN or
+    // infinite viewport makes ordinary comparisons silently pass instead of
+    // reject.
+    bool viewportValid_ = false;
     bool began_ = false;
     bool cameraValid_ = false;
     bool drawableValid_ = false;

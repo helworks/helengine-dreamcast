@@ -180,6 +180,45 @@ void SpritesKeepSubmissionOrder() {
     EXPECT(near(assembler.sprites().sprites[1].destinationX, 200.0f));
 }
 
+void ZeroViewportRejectsAnOtherwiseValidSprite() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    assembler.begin(0.0f, 0.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::InvalidViewport);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidViewport);
+    EXPECT(sink.presentCount == 0);
+}
+
+void NegativeViewportRejectsAnOtherwiseValidSprite() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    assembler.begin(-640.0f, -480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::InvalidViewport);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidViewport);
+    EXPECT(sink.presentCount == 0);
+}
+
+void NonFiniteViewportRejectsAnOtherwiseValidSprite() {
+    // The case the destination bound exists to stop: without an explicit
+    // viewport guard, a NaN viewport makes every bound comparison evaluate
+    // to false (NaN compares unordered against anything), so the bound
+    // check silently admits the sprite instead of rejecting it. This test
+    // fails if that guard is ever removed or bypassed.
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    assembler.begin(nan, 480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::InvalidViewport);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidViewport);
+    EXPECT(sink.presentCount == 0);
+}
+
 } // namespace
 
 int main() {
@@ -188,6 +227,9 @@ int main() {
     InvalidSpritesFailBeforeAnyPresentation();
     ASpritelessFrameStillPresents();
     SpritesKeepSubmissionOrder();
+    ZeroViewportRejectsAnOtherwiseValidSprite();
+    NegativeViewportRejectsAnOtherwiseValidSprite();
+    NonFiniteViewportRejectsAnOtherwiseValidSprite();
     if (failures != 0) {
         std::cerr << failures << " assertion(s) failed\n";
         return 1;

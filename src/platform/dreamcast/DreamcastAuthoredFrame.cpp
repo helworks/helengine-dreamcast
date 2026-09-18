@@ -84,6 +84,8 @@ const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept {
         return "too-many-sprites";
     case AuthoredFrameStatus::InvalidSprite:
         return "invalid-sprite";
+    case AuthoredFrameStatus::InvalidViewport:
+        return "invalid-viewport";
     }
     return "unknown";
 }
@@ -95,6 +97,13 @@ AuthoredFrameAssembler::AuthoredFrameAssembler() : frame_(new GeometryFrame()) {
 void AuthoredFrameAssembler::begin(float viewportWidth, float viewportHeight) noexcept {
     viewportWidth_ = viewportWidth;
     viewportHeight_ = viewportHeight;
+    // Computed once, here, where the raw dimensions enter the assembler.
+    // Every later consumer of viewportWidth_/viewportHeight_ (the sprite
+    // destination bound and present()'s geometry projection) trusts this
+    // flag instead of re-deriving its own notion of "sane"; a zero,
+    // negative, NaN or infinite viewport is never a real screen size.
+    viewportValid_ = finite(viewportWidth) && finite(viewportHeight) &&
+                     viewportWidth > 0.0f && viewportHeight > 0.0f;
     began_ = true;
     cameraValid_ = false;
     drawableValid_ = false;
@@ -247,9 +256,18 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
         return fail(AuthoredFrameStatus::InvalidSprite);
     }
     // The destination rectangle must lie within a generous multiple of the
-    // viewport. A value out here cannot be a real screen coordinate, and
-    // left unchecked it can overflow to infinity once the raster stage adds
-    // width/height to x/y.
+    // viewport, and the viewport itself must be trusted before it is used to
+    // derive that bound: begin() computed viewportValid_, and a zero,
+    // negative, NaN or infinite viewport would otherwise make the bound
+    // either reject everything or, for NaN/infinity, silently admit
+    // everything (every comparison against NaN is false), which is exactly
+    // the bypass this check exists to close.
+    if (!viewportValid_) {
+        return fail(AuthoredFrameStatus::InvalidViewport);
+    }
+    // A value out here cannot be a real screen coordinate, and left unchecked
+    // it can overflow to infinity once the raster stage adds width/height to
+    // x/y.
     const float boundX = kSpriteDestinationBoundsMultiple * viewportWidth_;
     const float boundY = kSpriteDestinationBoundsMultiple * viewportHeight_;
     const float destinationRight = sprite.destinationX + sprite.destinationWidth;
@@ -279,6 +297,16 @@ AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) no
     }
     if (summary_.drawableCount == 0 || !drawableValid_) {
         return AuthoredFrameStatus::NoDrawable;
+    }
+    // Guard the geometry projection below the same way addSprite() guards
+    // its destination bound: viewportWidth_/viewportHeight_ feed the focal
+    // length and clip math in GeometryConfig/processGeometry, and nothing
+    // upstream of this point validates them. This was already true before
+    // sprites existed; it stays reachable here so a bad viewport can never
+    // silently drive the projection with a zero, negative, NaN or infinite
+    // value.
+    if (!viewportValid_) {
+        return AuthoredFrameStatus::InvalidViewport;
     }
 
     Matrix4x4 cameraFromModel{};
