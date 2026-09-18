@@ -84,6 +84,40 @@ public sealed class DreamcastTextureCookerTests {
         Assert.Contains(format.ToString(), exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>Confirms non-uniform Rgba32 pixels convert correctly with distinct channel values to detect order bugs.</summary>
+    [Fact]
+    public void Cook_ConvertsNonUniformRgba32ToArgb4444() {
+        helengine.TextureAsset asset = CreateRgba32(1, 1);
+        asset.Colors = [0xF0, 0x80, 0x10, 0x40];  // R=0xF0, G=0x80, B=0x10, A=0x40
+
+        byte[] cooked = new DreamcastTextureCooker().Cook(asset);
+
+        int offset = DreamcastTextureSchemaIds.HeaderBytes + (DreamcastTextureTwiddle.TwiddledIndex(0, 0) * 2);
+        Assert.Equal((ushort)0x4F81, BitConverter.ToUInt16(cooked, offset));
+    }
+
+    /// <summary>Confirms Rgba4444 sources undergo correct alpha rotation to ARGB4444.</summary>
+    [Fact]
+    public void Cook_ConvertsRgba4444WithAlphaRotation() {
+        helengine.TextureAsset asset = new helengine.TextureAsset {
+            Id = "textures/test",
+            Width = 1,
+            Height = 1,
+            ColorFormat = helengine.TextureAssetColorFormat.Rgba4444,
+            AlphaPrecision = helengine.TextureAssetAlphaPrecision.A4,
+            Colors = new byte[2]
+        };
+        // Source RGBA4444 with distinct nibbles: R=1, G=2, B=3, A=4
+        // Encoded as: [R][G][B][A] = 0x1234
+        BitConverter.TryWriteBytes(asset.Colors.AsSpan(0), (ushort)0x1234);
+
+        byte[] cooked = new DreamcastTextureCooker().Cook(asset);
+
+        int offset = DreamcastTextureSchemaIds.HeaderBytes + (DreamcastTextureTwiddle.TwiddledIndex(0, 0) * 2);
+        // Alpha rotated from bits 3-0 to bits 15-12: result is ARGB4444 = 0x4123
+        Assert.Equal((ushort)0x4123, BitConverter.ToUInt16(cooked, offset));
+    }
+
     static helengine.TextureAsset CreateRgba32(int width, int height) {
         return new helengine.TextureAsset {
             Id = "textures/test",
