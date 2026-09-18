@@ -46,6 +46,25 @@ other platform, so a Dreamcast-shaped authoring constraint should not be pushed
 back onto it. This is the same principle that made the camera field of view
 authored state rather than a per-platform constant.
 
+**Amended 2026-09-18, reversing the no-resampling position above.** Measurement
+after the cooker and stager landed showed the project ships 430 instruction
+textures, 423 of them 256 by 256, cooking to 53 MiB in total against a 1 MiB
+embedded budget and 8 MiB of video memory. Even this platform's own 15 icons come
+to 1.88 MiB at native size. The owner chose downscaling over raising the budget or
+shipping fewer icons. So:
+
+- Cooked textures are capped at 64 pixels on each axis.
+- Art already within the cap is untouched, so only oversized art is resampled and
+  small hand-made art keeps its exact pixels.
+- Downscaling is by repeated exact halving with a 2 by 2 box average, never an
+  arbitrary ratio, so 256 becomes 128 becomes 64 with no resampling artifacts.
+- The average is computed on premultiplied alpha and then unpremultiplied. These
+  are anti-aliased icons on transparency, and averaging colour against transparent
+  pixels without premultiplying produces dark halos at every edge.
+- Capping alone is not sufficient. The stager must also embed only the textures
+  this platform's content uses; staging all 430 would still reach 3.5 MiB at the
+  cap.
+
 ## Cooked texture asset
 
 A new `dc-texture-v1` asset sits beside the existing cooked material and model
