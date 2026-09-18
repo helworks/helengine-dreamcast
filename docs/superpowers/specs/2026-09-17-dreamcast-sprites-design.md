@@ -93,15 +93,42 @@ real figure is to be read after tile accelerator initialisation on a build
 carrying the sprite path, and the limit set from that measurement with margin.
 Both the measurement and the derived limit are recorded in `docs/Validation.md`.
 
+The upload is a plain byte copy, `pvr_txr_load`, not the loading helper that
+twiddles during transfer. That helper twiddles unconditionally and would undo
+the cooker's work.
+
 `BuildTextureFromRaw` and `UpdateTextureRegionCore` remain unimplemented and keep
 throwing. Both are cooked-content bypasses, and refusing them preserves the rule
 that everything on this platform is prepared offline.
+
+The override that matters is a third one, `BuildTextureFromCooked`, which the
+base render manager declares virtual with a body that throws. The generated
+scene asset reference resolver calls it with a cooked asset path and the content
+stream source whenever a scene references a texture, so it is the real entry
+point and Dreamcast must override it:
+
+```cpp
+::RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath,
+                                         ::IContentStreamSource* contentStreamSource) override;
+```
+
+The generated `RuntimeTexture` base carries only width, height and ownership
+flags, with no native handle, so Dreamcast derives its own type adding the
+video memory pointer. Release goes through the base class's `ReleaseTexture`.
 
 ## Sprite submission
 
 `AuthoredSpriteState` carries a destination rectangle in screen pixels, the
 source sub-rectangle within the padded texture, a texture handle, and a colour
 tint with alpha. Nothing else.
+
+Where the destination rectangle comes from is worth stating, because it is not
+obvious. `ISpriteDrawable2D` exposes a texture, a `byte4` colour tint, a
+`float4` source rectangle and an `int2` size, but **no screen position**. The
+position comes from the owning entity's transform, reached through the
+drawable's parent, combined with that size. The gather step does that
+conversion, so the assembler still receives a finished rectangle in pixels and
+stays free of generated types.
 
 `AuthoredFrameAssembler::addSprite` validates as `setCamera` and `addDrawable`
 already do, failing the frame before any packet is emitted on:
