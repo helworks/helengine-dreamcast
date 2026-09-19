@@ -14,8 +14,11 @@
 #include "Entity.hpp"
 #include "ICamera.hpp"
 #include "IContentStreamSource.hpp"
+#include "IDrawable2D.hpp"
 #include "IDrawable3D.hpp"
+#include "IRenderQueue2D.hpp"
 #include "IRenderQueue3D.hpp"
+#include "IRenderVisitor2D.hpp"
 #include "IRenderVisitor3D.hpp"
 #include "LightComponent.hpp"
 #include "ModelAsset.hpp"
@@ -137,6 +140,53 @@ private:
     AuthoredFrameStatus status_ = AuthoredFrameStatus::Ok;
 };
 
+/// Visits the camera's ordered 2D queue and asks every enabled, layer-visible
+/// drawable to draw itself, which routes it into RenderManager2D::DrawSprite
+/// and from there into the same frame assembler this manager is gathering
+/// into.
+///
+/// The walk lives here rather than in the 2D manager because nothing in the
+/// generated Core drives the 2D list on this platform: Core::Draw calls only
+/// RenderManager3D::Draw, RenderManager2D::Draw is empty, and a drawable's own
+/// Draw() is what reaches RenderManager2D. Walking it from inside the
+/// begin()/present() pair below is therefore the only way sprites and geometry
+/// can land in one frame.
+class Drawable2DCollector final : public ::IRenderVisitor2D {
+public:
+    explicit Drawable2DCollector(std::uint16_t cameraLayerMask) noexcept
+        : cameraLayerMask_(cameraLayerMask) {
+    }
+
+    void Visit(::IDrawable2D* drawable) override {
+        if (drawable == nullptr) {
+            // A null entry never reaches the 2D manager, so it cannot be
+            // failed through the assembler's sprite path; record it here.
+            if (status_ == AuthoredFrameStatus::Ok) {
+                status_ = AuthoredFrameStatus::InvalidSprite;
+            }
+            return;
+        }
+        ::Entity* owner = drawable->get_Parent();
+        // A null owner is deliberately *not* filtered out: the 2D manager
+        // fails the frame for it through the assembler, the same way it does
+        // for a missing or foreign texture. Only a real, disabled or
+        // out-of-layer owner is skipped, matching DrawableCollector.
+        if (owner != nullptr && (!owner->get_IsHierarchyEnabled() ||
+                                 (owner->get_LayerMask() & cameraLayerMask_) == 0)) {
+            return;
+        }
+        drawable->Draw();
+    }
+
+    AuthoredFrameStatus status() const noexcept {
+        return status_;
+    }
+
+private:
+    std::uint16_t cameraLayerMask_;
+    AuthoredFrameStatus status_ = AuthoredFrameStatus::Ok;
+};
+
 /// Reads the enabled scene lights into the generated-header-free light state.
 /// Ambient contributions sum; directional lights keep authored order and are
 /// capped by the assembler, which fails rather than dropping a fifth light.
@@ -231,6 +281,10 @@ void DreamcastRenderManager3D::installFrameSink(IAuthoredFrameSink* sink) noexce
     sink_ = sink;
 }
 
+void DreamcastRenderManager3D::installAssembler(AuthoredFrameAssembler* assembler) noexcept {
+    assembler_ = assembler;
+}
+
 void DreamcastRenderManager3D::Draw() {
     ::Core* core = get_OwnerCore();
     ::ObjectManager* objectManager = core != nullptr ? core->get_ObjectManager() : nullptr;
@@ -244,21 +298,30 @@ void DreamcastRenderManager3D::Draw() {
         }
         throw std::runtime_error("Dreamcast authored draw requested before a frame sink was installed.");
     }
+    if (assembler_ == nullptr) {
+        // The assembler belongs to the runtime host and is shared with the 2D
+        // manager. Without it there is no frame to gather into, so fail here
+        // rather than dereference. Unreachable for the empty-scene probe,
+        // which returned above.
+        throw std::runtime_error(
+            "Dreamcast authored draw requested before a frame assembler was installed.");
+    }
+    AuthoredFrameAssembler& assembler = *assembler_;
 
     const ::int2 windowSize = get_MainWindowSize();
-    assembler_.begin(static_cast<float>(windowSize.X), static_cast<float>(windowSize.Y));
-    AuthoredFrameStatus status = assembler_.setLights(gatherLights(*objectManager));
+    assembler.begin(static_cast<float>(windowSize.X), static_cast<float>(windowSize.Y));
+    AuthoredFrameStatus status = assembler.setLights(gatherLights(*objectManager));
     for (int32_t index = 0; index < cameraCount && status == AuthoredFrameStatus::Ok; ++index) {
         ::ICamera* camera = cameras->get_Item(index);
         if (camera == nullptr) {
             status = AuthoredFrameStatus::InvalidCamera;
             break;
         }
-        status = assembler_.setCamera(gatherCamera(*camera));
+        status = assembler.setCamera(gatherCamera(*camera));
         if (status != AuthoredFrameStatus::Ok) {
             break;
         }
-        DrawableCollector collector(assembler_, camera->get_LayerMask());
+        DrawableCollector collector(assembler, camera->get_LayerMask());
         ::IRenderQueue3D* queue = camera->get_RenderQueue3D();
         if (queue == nullptr) {
             status = AuthoredFrameStatus::NoDrawable;
@@ -266,11 +329,25 @@ void DreamcastRenderManager3D::Draw() {
         }
         queue->VisitOrdered(&collector);
         status = collector.status();
+        if (status != AuthoredFrameStatus::Ok) {
+            break;
+        }
+        // Sprites are gathered after the geometry of the same camera and
+        // before present(), so both lists reach the sink as one frame. An
+        // absent 2D queue is not a failure: a camera may legitimately carry
+        // no sprite overlay.
+        ::IRenderQueue2D* queue2D = camera->get_RenderQueue2D();
+        if (queue2D == nullptr) {
+            continue;
+        }
+        Drawable2DCollector collector2D(camera->get_LayerMask());
+        queue2D->VisitOrdered(&collector2D);
+        status = collector2D.status();
     }
     if (status == AuthoredFrameStatus::Ok) {
-        status = assembler_.present(*sink_);
+        status = assembler.present(*sink_);
     }
-    lastSummary_ = assembler_.summary();
+    lastSummary_ = assembler.summary();
     if (status != AuthoredFrameStatus::Ok) {
         rejectFrame(status);
     }
@@ -279,6 +356,8 @@ void DreamcastRenderManager3D::Draw() {
 
 void DreamcastRenderManager3D::Dispose() {
     sink_ = nullptr;
+    // Borrowed, never owned: the host outlives this manager and frees it.
+    assembler_ = nullptr;
     ::RenderManager3D::Dispose();
 }
 

@@ -23,6 +23,14 @@ public:
     /// case. Any nonempty draw request without a sink fails.
     void installFrameSink(IAuthoredFrameSink* sink) noexcept;
 
+    /// Installs (or clears with nullptr) the frame assembler this manager
+    /// gathers into. The assembler is owned by the runtime host, not by either
+    /// render manager, because one frame carries both the 3D geometry gathered
+    /// here and the sprites gathered by DreamcastRenderManager2D; the same
+    /// pointer is installed in both. A nonempty draw request without an
+    /// assembler fails rather than dereferencing.
+    void installAssembler(AuthoredFrameAssembler* assembler) noexcept;
+
     void Draw() override;
 
     void Dispose() override;
@@ -50,7 +58,7 @@ public:
     void ReleaseModel(::RuntimeModel* model) override;
 
 private:
-    AuthoredFrameAssembler assembler_;
+    AuthoredFrameAssembler* assembler_ = nullptr;
     IAuthoredFrameSink* sink_ = nullptr;
     AuthoredFrameSummary lastSummary_{};
     std::uint32_t presentedFrames_ = 0;

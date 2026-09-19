@@ -273,8 +273,16 @@ int runDreamcastRuntimeInitProbe() noexcept {
     ::PlatformInfo* platformInfo = nullptr;
     DreamcastContentStreamSource content;
     DreamcastInputBackend input;
+    // One assembler per run, owned here and shared by both managers: a frame
+    // belongs to the host, not to either manager. Declared before them so it
+    // outlives both. The probe draws an empty scene and never reaches it, but
+    // installing it keeps the two host entry points the same shape and
+    // preserves the heap footprint the manager's own assembler used to have.
+    AuthoredFrameAssembler assembler;
     DreamcastRenderManager3D render3D;
     DreamcastRenderManager2D render2D;
+    render3D.installAssembler(&assembler);
+    render2D.installAssembler(&assembler);
     int result = 0;
 
     try {
@@ -404,6 +412,11 @@ int runDreamcastAuthoredScene() noexcept {
     DreamcastSceneCatalogHandle sceneCatalog;
     DreamcastContentStreamSource content;
     DreamcastInputBackend input;
+    // The one frame per loop iteration carries both the geometry the 3D
+    // manager gathers and the sprites the 2D manager gathers, so the assembler
+    // is owned here and injected into both rather than owned by either.
+    // Declared before both so it outlives them.
+    AuthoredFrameAssembler assembler;
     DreamcastRenderManager3D render3D;
     DreamcastRenderManager2D render2D;
     int result = 0;
@@ -431,6 +444,8 @@ int runDreamcastAuthoredScene() noexcept {
         render3D.AddWindow(0, static_cast<int32_t>(videoState.width),
                            static_cast<int32_t>(videoState.height));
         render3D.installFrameSink(&frameSink);
+        render3D.installAssembler(&assembler);
+        render2D.installAssembler(&assembler);
         core = new ::Core(options);
         core->Initialize(&render3D, &render2D, &input, platformInfo, options);
         helengine_dreamcast_runtime_probe.status = kProbeStatusCoreReady;
@@ -578,6 +593,8 @@ int runDreamcastAuthoredScene() noexcept {
     delete options;
     sceneCatalog.dispose();
     render3D.installFrameSink(nullptr);
+    render3D.installAssembler(nullptr);
+    render2D.installAssembler(nullptr);
     renderer.shutdown();
     video.shutdown();
     logHeapSnapshot("shutdown");

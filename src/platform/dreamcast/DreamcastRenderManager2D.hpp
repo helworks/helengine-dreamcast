@@ -2,6 +2,8 @@
 
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
+#include "DreamcastAuthoredFrame.hpp"
+
 #include "RenderManager2D.hpp"
 
 namespace helengine::dreamcast {
@@ -12,8 +14,20 @@ namespace helengine::dreamcast {
 /// BuildTextureFromCooked, which the generated scene asset reference resolver
 /// calls for every texture a scene references. Raw, runtime-built textures are
 /// not supported on this platform.
+///
+/// Sprites are gathered into the frame assembler the runtime host installs.
+/// That assembler is the same object DreamcastRenderManager3D gathers geometry
+/// into, which is what puts both in one presented frame; neither manager owns
+/// it.
 class DreamcastRenderManager2D final : public ::RenderManager2D {
 public:
+    /// Installs (or clears with nullptr) the frame assembler sprites are
+    /// gathered into. A draw request without an assembler fails rather than
+    /// dereferencing.
+    void installAssembler(AuthoredFrameAssembler* assembler) noexcept;
+
+    void Dispose() override;
+
     ::RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath,
                                              ::IContentStreamSource* contentStreamSource) override;
     ::RuntimeTexture* BuildTextureFromRaw(::TextureAsset* data) override;
@@ -30,6 +44,9 @@ protected:
                                  int32_t height,
                                  ::Array<uint8_t>* rgba8,
                                  int32_t sourceRowPitch) override;
+
+private:
+    AuthoredFrameAssembler* assembler_ = nullptr;
 };
 
 } // namespace helengine::dreamcast

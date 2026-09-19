@@ -219,6 +219,61 @@ void NonFiniteViewportRejectsAnOtherwiseValidSprite() {
     EXPECT(sink.presentCount == 0);
 }
 
+void SourceSpanRescalesAnImageRectangleOntoThePaddedSquare() {
+    // The whole image of a 3x2 picture cooked into an 8x8 square occupies
+    // three eighths of U and two eighths of V, not the whole square. Getting
+    // this wrong samples the padding and is invisible on a texture whose
+    // image already fills its square.
+    const SpriteSourceSpan whole =
+        spriteSourceSpan(SpriteSourceRect{0.0f, 0.0f, 1.0f, 1.0f}, 3, 2, 8);
+    EXPECT(near(whole.u0, 0.0f));
+    EXPECT(near(whole.v0, 0.0f));
+    EXPECT(near(whole.u1, 3.0f / 8.0f));
+    EXPECT(near(whole.v1, 2.0f / 8.0f));
+
+    // A sub-rectangle is normalized against the image too, so its edges scale
+    // by the same factor rather than being taken as square coordinates.
+    const SpriteSourceSpan half =
+        spriteSourceSpan(SpriteSourceRect{0.5f, 0.0f, 0.5f, 1.0f}, 3, 2, 8);
+    EXPECT(near(half.u0, 1.5f / 8.0f));
+    EXPECT(near(half.u1, 3.0f / 8.0f));
+    EXPECT(near(half.v0, 0.0f));
+    EXPECT(near(half.v1, 2.0f / 8.0f));
+
+    // An image that exactly fills its square is the degenerate case where a
+    // missing rescale would go unnoticed; it must still come back unchanged.
+    const SpriteSourceSpan exact =
+        spriteSourceSpan(SpriteSourceRect{0.25f, 0.75f, 0.5f, 0.25f}, 64, 64, 64);
+    EXPECT(near(exact.u0, 0.25f));
+    EXPECT(near(exact.v0, 0.75f));
+    EXPECT(near(exact.u1, 0.75f));
+    EXPECT(near(exact.v1, 1.0f));
+}
+
+void SourceSpanFromADegenerateTextureIsRejectedByTheAssembler() {
+    // spriteSourceSpan decides nothing; a zero padded side makes it produce a
+    // non-finite span, and the assembler is what fails the frame for it. This
+    // pins that division-by-zero stays IEEE rather than becoming a guard that
+    // silently substitutes a plausible-looking span.
+    const SpriteSourceSpan span =
+        spriteSourceSpan(SpriteSourceRect{0.0f, 0.0f, 1.0f, 1.0f}, 8, 8, 0);
+    EXPECT(!std::isfinite(span.u1));
+
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    AuthoredSpriteState sprite = validSprite();
+    sprite.sourceU0 = span.u0;
+    sprite.sourceV0 = span.v0;
+    sprite.sourceU1 = span.u1;
+    sprite.sourceV1 = span.v1;
+    EXPECT(assembler.addSprite(sprite) == AuthoredFrameStatus::InvalidSprite);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidSprite);
+    EXPECT(sink.presentCount == 0);
+}
+
 } // namespace
 
 int main() {
@@ -230,6 +285,8 @@ int main() {
     ZeroViewportRejectsAnOtherwiseValidSprite();
     NegativeViewportRejectsAnOtherwiseValidSprite();
     NonFiniteViewportRejectsAnOtherwiseValidSprite();
+    SourceSpanRescalesAnImageRectangleOntoThePaddedSquare();
+    SourceSpanFromADegenerateTextureIsRejectedByTheAssembler();
     if (failures != 0) {
         std::cerr << failures << " assertion(s) failed\n";
         return 1;
