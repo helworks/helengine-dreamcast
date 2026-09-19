@@ -64,7 +64,13 @@ struct DreamcastAuthoredSnapshot {
     std::uint32_t clearArgb;
     std::uint32_t checkedFreeHeap;
     std::uint32_t loopFrames;
-    std::uint32_t directionalLightCount;
+    /// Directional light count (low 16 bits) and sprite count (high 16 bits),
+    /// packed into the snapshot's last word so the struct stays 64 bytes with
+    /// no spare field. Lights are capped at 4 and sprites at 64 (see
+    /// kMaxDirectionalLights / kMaxSprites), so each comfortably fits its
+    /// half. The verifier's Lua probe must unpack this the same way:
+    /// lights = packedCounts & 0xFFFF, sprites = packedCounts >> 16.
+    std::uint32_t packedCounts;
 };
 
 static_assert(sizeof(DreamcastAuthoredSnapshot) == 64,
@@ -75,7 +81,12 @@ extern volatile DreamcastAuthoredSnapshot helengine_dreamcast_authored_snapshot;
 }
 
 constexpr std::uint32_t kDreamcastAuthoredSnapshotMagic = 0x48454153u; // "HEAS"
-constexpr std::uint32_t kDreamcastAuthoredSnapshotVersion = 2u;
+// Version 3: the last word changed from a bare directionalLightCount to
+// packedCounts (lights in the low 16 bits, sprites in the high 16 bits).
+// The verifier's validity gate is pinned to this version so a stale ELF
+// fails immediately (see verify-authored-scene.ps1's version-mismatch path)
+// instead of being misread against the old single-count layout.
+constexpr std::uint32_t kDreamcastAuthoredSnapshotVersion = 3u;
 
 enum DreamcastAuthoredStage : std::uint32_t {
     kAuthoredStageBooting = 0,

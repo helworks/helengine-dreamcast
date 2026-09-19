@@ -119,7 +119,7 @@ void resetAuthoredSnapshot() noexcept {
     snapshot.clearArgb = 0u;
     snapshot.checkedFreeHeap = 0u;
     snapshot.loopFrames = 0u;
-    snapshot.directionalLightCount = 0u;
+    snapshot.packedCounts = 0u;
 }
 
 void setAuthoredStage(std::uint32_t stage) noexcept {
@@ -152,7 +152,11 @@ void publishAuthoredFrame(const AuthoredFrameSummary& summary,
     snapshot.rejectedTriangles = summary.rejectedTriangleCount;
     snapshot.presentedFrames = presentedFrames;
     snapshot.loopFrames = loopFrames;
-    snapshot.directionalLightCount = summary.directionalLightCount;
+    // Packing order: lights in the low 16 bits, sprites in the high 16 bits.
+    // See the kDreamcastAuthoredSnapshotVersion / packedCounts comment in
+    // DreamcastRuntimeHost.hpp; the verifier's Lua probe unpacks the same way.
+    snapshot.packedCounts = static_cast<std::uint32_t>(summary.directionalLightCount) |
+                             (static_cast<std::uint32_t>(summary.spriteCount) << 16);
     snapshot.clearArgb = renderer_detail::packColor(summary.clearColor);
     if (snapshot.firstPresentedFrame == 0u && presentedFrames != 0u) {
         snapshot.firstPresentedFrame = loopFrames;
@@ -510,14 +514,15 @@ int runDreamcastAuthoredScene() noexcept {
             if (!reportedFirstFrame) {
                 const AuthoredFrameSummary& summary = render3D.lastFrameSummary();
                 dbglog(DBG_INFO,
-                       "DreamcastAuthored: first frame cameras=%u drawables=%u triangles=%u clipped=%u rejected=%u clear=%08lx lights=%u\n",
+                       "DreamcastAuthored: first frame cameras=%u drawables=%u triangles=%u clipped=%u rejected=%u clear=%08lx lights=%u sprites=%u\n",
                        static_cast<unsigned>(summary.cameraCount),
                        static_cast<unsigned>(summary.drawableCount),
                        static_cast<unsigned>(summary.triangleCount),
                        static_cast<unsigned>(summary.clippedTriangleCount),
                        static_cast<unsigned>(summary.rejectedTriangleCount),
                        static_cast<unsigned long>(renderer_detail::packColor(summary.clearColor)),
-                       static_cast<unsigned>(summary.directionalLightCount));
+                       static_cast<unsigned>(summary.directionalLightCount),
+                       static_cast<unsigned>(summary.spriteCount));
                 reportedFirstFrame = true;
             }
             if ((authoredFrameCount % 60u) == 0u) {

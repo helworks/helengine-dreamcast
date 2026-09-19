@@ -17,6 +17,10 @@ param(
     # Default 0 keeps unlit scenes verifiable; lit scenes should pass 1 or more.
     [ValidateRange(0, 255)]
     [int]$MinimumLights = 0,
+    # Minimum sprites the authored snapshot must report for a PASS.
+    # Default 0 keeps spriteless scenes verifiable; sprite scenes should pass 1 or more.
+    [ValidateRange(0, 65535)]
+    [int]$MinimumSprites = 0,
     [switch]$NoController,
     [ValidateRange(10, 3600)]
     [int]$WaitSeconds = 300
@@ -141,6 +145,7 @@ local captureFrames = { @@CAPTURES@@ }
 local startAfterFrames = @@START_AFTER@@
 local timeoutVblanks = @@TIMEOUT_VBLANKS@@
 local minimumLights = @@MINIMUM_LIGHTS@@
+local minimumSprites = @@MINIMUM_SPRITES@@
 local injectStart = @@INJECT_START@@
 local minimumFreeHeap = 4194304
 local startButton = 8
@@ -170,9 +175,21 @@ local function runtimeText(v)
     v[1], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[16], v[17], v[18], v[19], v[20])
 end
 
+-- Authored snapshot version 3: a[16] (packedCounts) packs the directional
+-- light count into its low 16 bits and the sprite count into its high 16
+-- bits. Unpacked with plain arithmetic rather than bitwise ops, since not
+-- every Lua build embedded in Flycast exposes bit32/bitwise operators.
+local function unpackCounts(a)
+  local packed = a[16]
+  local lights = packed % 65536
+  local sprites = math.floor(packed / 65536) % 65536
+  return lights, sprites
+end
+
 local function authoredText(a)
-  return string.format("au_magic=%08x au_version=%u au_stage=%u au_error=%u sceneDigest=%08x cameras=%u drawables=%u tris=%u clipped=%u rejected=%u presented=%u firstPresented=%u clearArgb=%08x au_free=%u loopFrames=%u lights=%u",
-    a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16])
+  local lights, sprites = unpackCounts(a)
+  return string.format("au_magic=%08x au_version=%u au_stage=%u au_error=%u sceneDigest=%08x cameras=%u drawables=%u tris=%u clipped=%u rejected=%u presented=%u firstPresented=%u clearArgb=%08x au_free=%u loopFrames=%u lights=%u sprites=%u",
+    a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15], lights, sprites)
 end
 
 local function diagText(d)
@@ -242,11 +259,12 @@ local function cbVBlank()
   local d = readWords(diagAddress, 20)
   local ready = flycast.memory.read32(sceneReadyAddress)
   local count = flycast.memory.read32(frameCountAddress)
-  -- Authored snapshot version 2 added directionalLightCount. Pinned to the
-  -- current kDreamcastAuthoredSnapshotVersion so a stale ELF fails loudly
-  -- rather than being read against the wrong layout.
+  -- Authored snapshot version 3 repacked the last word as packedCounts
+  -- (lights low 16 bits, sprites high 16 bits). Pinned to the current
+  -- kDreamcastAuthoredSnapshotVersion so a stale ELF fails loudly rather
+  -- than being read against the wrong layout.
   local magicOk = v[1] == 0x48455250 and a[1] == 0x48454153
-  local valid = magicOk and v[2] == 1 and a[2] == 2
+  local valid = magicOk and v[2] == 1 and a[2] == 3
   if frame == 1 then line(string.format("vblank=%d %s %s", frame, runtimeText(v), authoredText(a))) end
   -- Both magics present but a version we cannot read means a stale ELF. Fail on
   -- the spot: waiting for the timeout would hide the real reason, and every
@@ -287,11 +305,17 @@ local function cbVBlank()
   if valid and startPressedAt ~= nil and v[3] == 5 and v[4] == 0 and v[5] == 6 and a[3] == 9 and a[4] == 0 and
       v[17] == 1 and v[18] == 1 and v[19] == 1 and v[20] == 1 and
       v[6] >= minimumFreeHeap and v[7] >= minimumFreeHeap and v[8] >= minimumFreeHeap and v[9] >= minimumFreeHeap then
-    -- a[16] is directionalLightCount. Without this gate a lit scene that
-    -- gathered no lights at all still reports success, which would leave the
-    -- lighting feature with no automated check anywhere.
-    if a[16] < minimumLights then
+    -- a[16] (packedCounts) unpacks to lights and sprites. Without these
+    -- gates a lit or sprite scene that gathered none at all still reports
+    -- success, which would leave the feature with no automated check
+    -- anywhere.
+    local lights, sprites = unpackCounts(a)
+    if lights < minimumLights then
       finish("lights-below-gate", v, a, d, ready, count)
+      return
+    end
+    if sprites < minimumSprites then
+      finish("sprites-below-gate", v, a, d, ready, count)
       return
     end
     finish("success", v, a, d, ready, count)
@@ -319,6 +343,7 @@ $lua = $luaTemplate.Replace('@@ROOT@@', ($EvidenceRoot.Replace('\', '/') + '/'))
     Replace('@@START_AFTER@@', [string]$StartAfterFrames).
     Replace('@@TIMEOUT_VBLANKS@@', [string]$TimeoutVblanks).
     Replace('@@MINIMUM_LIGHTS@@', [string]$MinimumLights).
+    Replace('@@MINIMUM_SPRITES@@', [string]$MinimumSprites).
     Replace('@@INJECT_START@@', $(if ($NoController) { 'false' } else { 'true' }))
 $luaPath = Join-Path $EvidenceRoot 'verify-probe.lua'
 [IO.File]::WriteAllText($luaPath, $lua, (New-Object System.Text.UTF8Encoding($false)))
@@ -355,7 +380,7 @@ if (-not (Test-Path -LiteralPath $csvPath -PathType Leaf)) {
 }
 $lines = @(Get-Content -LiteralPath $csvPath)
 $expectedKind = if ($NoController) { 'no-controller-complete' } else { 'success' }
-$resultLine = $lines | Where-Object { $_ -match "^(success|no-controller-complete|error|timeout|heap-below-gate|lights-below-gate|version-mismatch) " } | Select-Object -First 1
+$resultLine = $lines | Where-Object { $_ -match "^(success|no-controller-complete|error|timeout|heap-below-gate|lights-below-gate|sprites-below-gate|version-mismatch) " } | Select-Object -First 1
 if ($null -eq $resultLine) {
     throw 'The Lua probe did not reach a terminal result.'
 }
