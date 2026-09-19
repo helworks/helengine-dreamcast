@@ -3,6 +3,7 @@ using helengine.baseplatform.Profiles;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.dreamcast.builder;
+using helengine.editor;
 
 namespace helengine.dreamcast.builder.tests;
 
@@ -70,6 +71,28 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Contains(codegen.Settings, setting => setting.SettingId == "codegen-compact-native-exception-messages" && setting.DefaultValue == "true");
         // The generator stopped reading this name; keeping it would be dead configuration.
         Assert.DoesNotContain(codegen.Settings, setting => setting.SettingId == "native-file-stream-descriptor-apis");
+    }
+
+    /// <summary>Confirms the definition declares only the "texture" cook capability, capped to 64 pixels, and no font-atlas capability.</summary>
+    [Fact]
+    public void DefinitionDeclaresOnlyTheTextureCookCapability() {
+        DreamcastPlatformAssetBuilder builder = new();
+
+        PlatformAssetCookCapabilityDefinition capability = Assert.Single(builder.Definition.AssetCookCapabilities);
+        Assert.Equal("texture", capability.SourceAssetKind);
+        Assert.Equal("runtime-texture", capability.TargetArtifactKind);
+        Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
+        Assert.DoesNotContain(builder.Definition.AssetCookCapabilities, c => c.SourceAssetKind == "font-atlas-texture");
+
+        TextureAssetProcessorSettings settings = DreamcastTextureCookSettingsSerializer.Deserialize(capability.DefaultSerializedPlatformSettings);
+        Assert.Equal(64, settings.MaxResolution);
+        Assert.Equal(TextureAssetColorFormat.Rgba32, settings.ColorFormat);
+        Assert.Equal(TextureAssetAlphaPrecision.A8, settings.AlphaPrecision);
+
+        Assert.NotNull(capability.TextureFormatCapabilities);
+        Assert.Equal(new[] { TextureAssetColorFormat.Rgba32.ToString() }, capability.TextureFormatCapabilities.SupportedColorFormatIds);
+        Assert.Contains(TextureAssetAlphaPrecision.Opaque, capability.TextureFormatCapabilities.SupportedAlphaPrecisions);
+        Assert.Contains(TextureAssetAlphaPrecision.A8, capability.TextureFormatCapabilities.SupportedAlphaPrecisions);
     }
 
     /// <summary>Confirms the initial native executor validates its required build request.</summary>

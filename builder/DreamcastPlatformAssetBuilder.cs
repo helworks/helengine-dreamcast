@@ -1,5 +1,6 @@
 using helengine.baseplatform.Builders;
 using helengine.baseplatform.Descriptors;
+using helengine.baseplatform.Manifest;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
@@ -13,6 +14,9 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
     readonly DreamcastContentStager ContentStager;
     readonly DreamcastStartupCatalogWriter StartupCatalogWriter = new();
     readonly DreamcastCookedContentValidator CookedContentValidator = new();
+
+    /// <summary>Executes builder-owned platform cook work items declared by the manifest, such as textures.</summary>
+    readonly DreamcastPlatformCookWorkItemExecutor CookWorkItemExecutor = new();
     readonly IDreamcastNativeBuildExecutor NativeBuildExecutor;
 
     /// <summary>Creates a builder using the production native executor.</summary>
@@ -82,7 +86,25 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
             Directory.CreateDirectory(request.OutputRoot);
             IReadOnlyList<DreamcastStartupCatalogEntry> catalogEntries = SceneValidator.Validate(request.Manifest);
             string packageSourceRoot = Path.Combine(request.WorkingRoot, "package-source");
-            ContentStager.Stage(request.Manifest, packageSourceRoot, contentRoot, cancellationToken);
+
+            PlatformCookWorkItem[] cookWorkItems = request.Manifest.PlatformCookWorkItems ?? [];
+            // The editor leaves builder-owned outputs (currently textures, including font atlases that fell back
+            // onto the texture capability) out of the manifest's cooked artifacts, so collect their staged paths
+            // here: they still have to reach the ROMFS or the runtime cannot open its sprite textures.
+            List<string> builderCookedRelativePaths = new(cookWorkItems.Length);
+            for (int workItemIndex = 0; workItemIndex < cookWorkItems.Length; workItemIndex++) {
+                cancellationToken.ThrowIfCancellationRequested();
+                CookWorkItemExecutor.Execute(cookWorkItems[workItemIndex], packageSourceRoot);
+                builderCookedRelativePaths.Add(cookWorkItems[workItemIndex].OutputRelativePath);
+                progressReporter.Report(new PlatformBuildProgressUpdate(
+                    "Cook Platform Artifacts",
+                    cookWorkItems[workItemIndex].OutputLogicalArtifactId,
+                    workItemIndex + 1,
+                    cookWorkItems.Length,
+                    $"Cooked platform-owned artifact '{cookWorkItems[workItemIndex].OutputRelativePath}'."));
+            }
+
+            ContentStager.Stage(request.Manifest, packageSourceRoot, contentRoot, builderCookedRelativePaths, cancellationToken);
             DreamcastStartupCatalogEntry startupEntry = catalogEntries.Single(entry => string.Equals(entry.SceneId, request.Manifest.StartupSceneId, StringComparison.Ordinal));
             CookedContentValidator.Validate(contentRoot, startupEntry.CookedRelativePath);
             StartupCatalogWriter.Write(catalogRoot, request.Manifest.StartupSceneId, catalogEntries);

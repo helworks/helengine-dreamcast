@@ -11,9 +11,15 @@
   <ItemGroup>
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.core\helengine.core.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.files\helengine.files.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="9.0.11" />
   </ItemGroup>
   <Target Name="ValidateHelengineRoot" BeforeTargets="CollectPackageReferences">
     <Error Condition="!Exists('$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj')" Text="helengine checkout not found. Set HelengineRoot or HELENGINE_ROOT." />
+    <Error Condition="!Exists('$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj')" Text="helengine editor project not found. Set HelengineRoot or HELENGINE_ROOT." />
   </Target>
 </Project>

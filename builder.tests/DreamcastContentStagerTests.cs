@@ -18,7 +18,7 @@ public sealed class DreamcastContentStagerTests {
         byte[] content = File.ReadAllBytes(Path.Combine(sourceRoot, "cooked", "scenes", "startup.hasset"));
         PlatformBuildManifest manifest = CreateManifest(artifacts[0], artifacts[1..]);
 
-        IReadOnlyList<string> paths = new DreamcastContentStager().Stage(manifest, sourceRoot, destinationRoot, CancellationToken.None);
+        IReadOnlyList<string> paths = new DreamcastContentStager().Stage(manifest, sourceRoot, destinationRoot, [], CancellationToken.None);
 
         Assert.Equal(new[] { "cooked/imported/models/cube.hasset", "cooked/materials/cube.helmat", "cooked/scenes/startup.hasset" }, paths);
         Assert.Equal(content, File.ReadAllBytes(Path.Combine(destinationRoot, "cooked", "scenes", "startup.hasset")));
@@ -46,7 +46,7 @@ public sealed class DreamcastContentStagerTests {
         PlatformBuildManifest manifest = CreateManifest(artifacts[0], [.. artifacts[1..], textureArtifact]);
         DreamcastContentStager stager = new();
 
-        IReadOnlyList<string> paths = stager.Stage(manifest, sourceRoot, destinationRoot, CancellationToken.None);
+        IReadOnlyList<string> paths = stager.Stage(manifest, sourceRoot, destinationRoot, [], CancellationToken.None);
 
         Assert.DoesNotContain("cooked/imported/dpad.hasset", paths);
         Assert.Equal(new[] { "cooked/imported/dpad.hasset" }, stager.LastSkippedRelativePaths);
@@ -54,19 +54,51 @@ public sealed class DreamcastContentStagerTests {
         Assert.Equal(3, paths.Count);
     }
 
-    /// <summary>Confirms a cooked texture is converted into the Dreamcast format rather than skipped.</summary>
+    /// <summary>
+    /// Confirms a declared cooked texture is copied byte-for-byte and its declared hash verified against the
+    /// copy, exactly as for every other artifact. Conversion into the Dreamcast twiddled form no longer happens
+    /// in the stager: the builder-owned "texture" cook capability means real builds never declare a texture this
+    /// way at all, but if one ever is declared, the stager must not silently reinterpret and convert it.
+    /// </summary>
     [Fact]
-    public void Stage_ConvertsCookedTexturesIntoTheDreamcastFormat() {
+    public void Stage_CopiesADeclaredCookedTextureVerbatimRatherThanConverting() {
         using DreamcastCookedTestContent content = DreamcastCookedTestContent.CreateWithTexture();
+        byte[] sourceBytes = File.ReadAllBytes(Path.Combine(content.SourceRoot, "textures", "icon.hasset"));
 
         IReadOnlyList<string> stagedPaths = new DreamcastContentStager().Stage(
-            content.Manifest, content.SourceRoot, content.DestinationRoot, CancellationToken.None);
+            content.Manifest, content.SourceRoot, content.DestinationRoot, [], CancellationToken.None);
 
         string staged = Path.Combine(content.DestinationRoot, "textures", "icon.hasset");
         Assert.Contains("textures/icon.hasset", stagedPaths);
         Assert.True(File.Exists(staged));
-        byte[] bytes = File.ReadAllBytes(staged);
-        Assert.Equal(DreamcastTextureSchemaIds.Magic, BitConverter.ToUInt32(bytes, 0));
+        Assert.Equal(sourceBytes, File.ReadAllBytes(staged));
+    }
+
+    /// <summary>
+    /// Confirms the builder's own cook-work-item outputs (currently textures, already cooked into the Dreamcast
+    /// twiddled <c>dc-texture-v1</c> form before staging runs) are embedded into the ROMFS by copying them
+    /// verbatim, counted toward the payload budget, even though the editor leaves them out of
+    /// <c>manifest.CookedArtifacts</c> entirely.
+    /// </summary>
+    [Fact]
+    public void Stage_EmbedsBuilderCookedRelativePathsVerbatim() {
+        using TemporaryDirectory temporary = new();
+        string sourceRoot = Path.Combine(temporary.Path, "package-source");
+        string destinationRoot = Path.Combine(temporary.Path, "stage");
+        PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(sourceRoot);
+        byte[] cookedTextureBytes = new byte[128];
+        new Random(11).NextBytes(cookedTextureBytes);
+        DreamcastCookedTestContent.WriteFile(sourceRoot, "textures/icon.dctex", cookedTextureBytes);
+        PlatformBuildManifest manifest = CreateManifest(artifacts[0], artifacts[1..]);
+        DreamcastContentStager stager = new();
+
+        IReadOnlyList<string> paths = stager.Stage(manifest, sourceRoot, destinationRoot, ["textures/icon.dctex"], CancellationToken.None);
+
+        Assert.Contains("textures/icon.dctex", paths);
+        Assert.Empty(stager.LastSkippedRelativePaths);
+        string staged = Path.Combine(destinationRoot, "textures", "icon.dctex");
+        Assert.True(File.Exists(staged));
+        Assert.Equal(cookedTextureBytes, File.ReadAllBytes(staged));
     }
 
     /// <summary>Rejects a declaration that cannot be associated with one exact cooked file.</summary>
@@ -80,7 +112,7 @@ public sealed class DreamcastContentStagerTests {
         PlatformBuildManifest manifest = CreateManifest(artifact);
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
-            new DreamcastContentStager().Stage(manifest, sourceRoot, Path.Combine(temporary.Path, "stage"), CancellationToken.None));
+            new DreamcastContentStager().Stage(manifest, sourceRoot, Path.Combine(temporary.Path, "stage"), [], CancellationToken.None));
 
         Assert.Contains("missing", exception.Message, StringComparison.OrdinalIgnoreCase);
     }

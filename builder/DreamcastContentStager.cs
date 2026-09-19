@@ -7,12 +7,15 @@ namespace helengine.dreamcast.builder;
 /// <summary>Copies only manifest-declared, runtime-loadable cooked artifacts into a deterministic ROMFS staging tree.</summary>
 /// <remarks>
 /// The Dreamcast v0.2 runtime can load scenes, models, platform materials and textures. Scenes, models and
-/// platform materials copy verbatim, byte for byte. Textures are converted through
-/// <see cref="DreamcastTextureCooker"/> into twiddled ARGB4444 <c>dc-texture-v1</c> bytes before staging, since
-/// the source pixel format is never something the PVR can sample directly. Declared artifacts of any other
-/// serialized type (fonts, audio, imported blobs) are still required to exist but are not staged, because the
-/// runtime could never open them and the ROMFS is resident in console RAM. The omitted paths are exposed through
-/// <see cref="LastSkippedRelativePaths"/> for diagnostics.
+/// platform materials copy verbatim, byte for byte. Textures are no longer converted here: the editor build graph
+/// now declares a builder-owned "texture" cook capability, so <see cref="DreamcastPlatformCookWorkItemExecutor"/>
+/// already wrote each texture as twiddled ARGB4444 <c>dc-texture-v1</c> bytes into the package source root before
+/// staging runs, and the editor leaves those builder-owned outputs out of <c>manifest.CookedArtifacts</c>
+/// entirely. This stager embeds them by copying the builder's own cooked relative paths verbatim, the same way it
+/// copies every other cooked file. Declared artifacts of any other serialized type (fonts, audio, imported blobs)
+/// are still required to exist but are not staged, because the runtime could never open them and the ROMFS is
+/// resident in console RAM. The omitted paths are exposed through <see cref="LastSkippedRelativePaths"/> for
+/// diagnostics.
 /// </remarks>
 public sealed class DreamcastContentStager {
     const long MaximumPayloadBytes = 1024 * 1024;
@@ -32,11 +35,24 @@ public sealed class DreamcastContentStager {
     /// <summary>Gets the declared artifacts the last <see cref="Stage"/> call left out because the runtime cannot load their type.</summary>
     public IReadOnlyList<string> LastSkippedRelativePaths { get; private set; } = [];
 
-    /// <summary>Stages declared cooked files in stable order and returns their normalized paths.</summary>
+    /// <summary>Stages declared cooked files together with the builder's own cook outputs, in stable order, and returns their normalized paths.</summary>
+    /// <param name="manifest">Resolved editor build manifest.</param>
+    /// <param name="cookedRoot">Package source root holding every declared cooked file.</param>
+    /// <param name="freshStagingRoot">Fresh ROMFS staging tree to populate.</param>
+    /// <param name="builderCookedRelativePaths">
+    /// Runtime-relative outputs <see cref="DreamcastPlatformCookWorkItemExecutor"/> already cooked into
+    /// <paramref name="cookedRoot"/> for builder-owned capabilities (currently textures, including font atlases
+    /// that fell back onto the texture capability). The editor leaves these out of
+    /// <c>manifest.CookedArtifacts</c>, so they are copied verbatim here rather than classified: they are already
+    /// in the Dreamcast's own cooked <c>dc-texture-v1</c> form, not the shared engine asset format the classifier
+    /// recognizes.
+    /// </param>
+    /// <param name="cancellationToken">Token observed between files.</param>
     public IReadOnlyList<string> Stage(
         PlatformBuildManifest manifest,
         string cookedRoot,
         string freshStagingRoot,
+        IReadOnlyList<string> builderCookedRelativePaths,
         CancellationToken cancellationToken) {
         if (manifest == null) {
             throw new ArgumentNullException(nameof(manifest));
@@ -46,6 +62,9 @@ public sealed class DreamcastContentStager {
         }
         if (string.IsNullOrWhiteSpace(freshStagingRoot)) {
             throw new ArgumentException("Fresh staging root is required.", nameof(freshStagingRoot));
+        }
+        if (builderCookedRelativePaths == null) {
+            throw new ArgumentNullException(nameof(builderCookedRelativePaths));
         }
 
         Validator.Validate(manifest);
@@ -67,6 +86,7 @@ public sealed class DreamcastContentStager {
         long totalBytes = 0;
         List<string> stagedPaths = [];
         List<string> skippedPaths = [];
+        HashSet<string> stagedPathSet = new(StringComparer.OrdinalIgnoreCase);
         foreach (PlatformBuildArtifact artifact in manifest.CookedArtifacts
                      .OrderBy(value => DreamcastSceneCompatibilityValidator.NormalizeRelativePath(value.RelativePath), StringComparer.Ordinal)) {
             cancellationToken.ThrowIfCancellationRequested();
@@ -78,24 +98,8 @@ public sealed class DreamcastContentStager {
                 throw new FileNotFoundException($"Declared cooked artifact is missing: {relativePath}", sourcePath);
             }
 
-            ArtifactStageKind kind = ClassifyRuntimeLoadable(sourcePath, out helengine.TextureAsset? texture);
-            if (kind == ArtifactStageKind.NotLoadable) {
+            if (ClassifyRuntimeLoadable(sourcePath) == ArtifactStageKind.NotLoadable) {
                 skippedPaths.Add(relativePath);
-                continue;
-            }
-
-            if (kind == ArtifactStageKind.Texture) {
-                using helengine.TextureAsset ownedTexture = texture!;
-                VerifyHash(artifact, sourcePath);
-                byte[] converted = new DreamcastTextureCooker().Cook(ownedTexture);
-                if (converted.Length > MaximumPayloadBytes || converted.Length > MaximumPayloadBytes - totalBytes) {
-                    throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
-                }
-                Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-                File.WriteAllBytes(destinationPath, converted);
-                totalBytes += converted.Length;
-                File.SetLastWriteTimeUtc(destinationPath, BuildEpochUtc);
-                stagedPaths.Add(relativePath);
                 continue;
             }
 
@@ -116,6 +120,39 @@ public sealed class DreamcastContentStager {
             totalBytes += copiedLength;
             File.SetLastWriteTimeUtc(destinationPath, BuildEpochUtc);
             stagedPaths.Add(relativePath);
+            stagedPathSet.Add(relativePath);
+        }
+
+        foreach (string candidateRelativePath in builderCookedRelativePaths
+                     .Select(value => DreamcastSceneCompatibilityValidator.NormalizeRelativePath(value, "builder-cooked artifact"))
+                     .OrderBy(value => value, StringComparer.Ordinal)) {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!stagedPathSet.Add(candidateRelativePath)) {
+                throw new InvalidOperationException($"Dreamcast cooked artifact path collision: '{candidateRelativePath}'.");
+            }
+            string sourcePath = ResolveUnderRoot(sourceRoot, candidateRelativePath);
+            string destinationPath = ResolveUnderRoot(destinationRoot, candidateRelativePath);
+            RejectReparsePoints(sourceRoot, candidateRelativePath);
+            if (!File.Exists(sourcePath)) {
+                throw new FileNotFoundException($"Builder-cooked artifact is missing: {candidateRelativePath}", sourcePath);
+            }
+
+            FileInfo sourceInfo = new(sourcePath);
+            if (sourceInfo.Length > MaximumPayloadBytes || sourceInfo.Length > MaximumPayloadBytes - totalBytes) {
+                throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            using (FileStream input = new(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.SequentialScan))
+            using (FileStream output = new(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.SequentialScan)) {
+                input.CopyTo(output);
+            }
+            long copiedLength = new FileInfo(destinationPath).Length;
+            if (copiedLength > MaximumPayloadBytes || copiedLength > MaximumPayloadBytes - totalBytes) {
+                throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
+            }
+            totalBytes += copiedLength;
+            File.SetLastWriteTimeUtc(destinationPath, BuildEpochUtc);
+            stagedPaths.Add(candidateRelativePath);
         }
 
         foreach (string directory in Directory.EnumerateDirectories(destinationRoot, "*", SearchOption.AllDirectories).Append(destinationRoot)) {
@@ -131,22 +168,19 @@ public sealed class DreamcastContentStager {
         /// <summary>The runtime cannot open this artifact type; it must exist but is left out of the ROMFS.</summary>
         NotLoadable,
 
-        /// <summary>A scene, model or platform material: staged by copying its bytes verbatim.</summary>
-        VerbatimCopy,
-
-        /// <summary>A texture: staged by converting it through <see cref="DreamcastTextureCooker"/>.</summary>
-        Texture
+        /// <summary>A scene, model, platform material or texture: staged by copying its bytes verbatim.</summary>
+        VerbatimCopy
     }
 
     /// <summary>
-    /// Deserializes the cooked file exactly once and classifies it. When the result is
-    /// <see cref="ArtifactStageKind.Texture"/>, <paramref name="texture"/> is the deserialized instance and
-    /// ownership passes to the caller, who must dispose it. Any other deserialized instance that implements
-    /// <see cref="IDisposable"/> (for example <c>ModelAsset</c>) is disposed here, before returning, since the
-    /// verbatim-copy and skip paths never need the instance itself.
+    /// Deserializes the cooked file exactly once and classifies it. A generic engine-serialized texture
+    /// classifies as <see cref="ArtifactStageKind.VerbatimCopy"/> like every other loadable artifact: conversion
+    /// into the Dreamcast's own twiddled <c>dc-texture-v1</c> form no longer happens here, it already happened in
+    /// <see cref="DreamcastPlatformCookWorkItemExecutor"/> before staging ran. Any deserialized instance that
+    /// implements <see cref="IDisposable"/> is disposed here, before returning, since neither the verbatim-copy
+    /// nor the skip path needs the instance itself.
     /// </summary>
-    static ArtifactStageKind ClassifyRuntimeLoadable(string sourcePath, out helengine.TextureAsset? texture) {
-        texture = null;
+    static ArtifactStageKind ClassifyRuntimeLoadable(string sourcePath) {
         byte[] bytes = File.ReadAllBytes(sourcePath);
         if (bytes.Length < 4 || bytes[0] != (byte)'H' || bytes[1] != (byte)'E' || bytes[2] != (byte)'L' || bytes[3] != (byte)'E') {
             return ArtifactStageKind.NotLoadable;
@@ -159,11 +193,7 @@ public sealed class DreamcastContentStager {
             return ArtifactStageKind.NotLoadable;
         }
 
-        if (asset is helengine.TextureAsset textureAsset) {
-            texture = textureAsset;
-            return ArtifactStageKind.Texture;
-        }
-        if (asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset) {
+        if (asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset || asset is helengine.TextureAsset) {
             if (asset is IDisposable loadableDisposable) {
                 loadableDisposable.Dispose();
             }

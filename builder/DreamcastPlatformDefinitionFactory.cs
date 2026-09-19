@@ -1,5 +1,6 @@
 using helengine.baseplatform.Definitions;
 using helengine.baseplatform.Profiles;
+using helengine.editor;
 
 namespace helengine.dreamcast.builder;
 
@@ -57,6 +58,21 @@ public static class DreamcastPlatformDefinitionFactory {
             new("release", "Release", "Dreamcast release build", DreamcastMaterialSchemaIds.StandardGraphicsProfileId, "default", buildSettings)
         ];
 
+        // One capability only: "texture", capped to 64 pixels per axis. Deliberately no separate
+        // "font-atlas-texture" capability: text is out of scope for this milestone and there is no glyph
+        // renderer to justify the larger cap N64 uses for its font atlases. The editor build graph falls
+        // generated font-atlas work items back onto this "texture" capability when no font-atlas capability is
+        // declared, so both authored icons and the two font atlases are cooked through the same 64 pixel cap.
+        PlatformAssetCookCapabilityDefinition[] assetCookCapabilities = [
+            new PlatformAssetCookCapabilityDefinition(
+                "texture",
+                "runtime-texture",
+                PlatformAssetCookOwnershipKind.BuilderOwned,
+                "dc-texture",
+                CreateDefaultSerializedTextureCookSettings(),
+                CreateTextureFormatCapabilities())
+        ];
+
         return new PlatformDefinition(
             "dc",
             "Sega Dreamcast",
@@ -78,6 +94,33 @@ public static class DreamcastPlatformDefinitionFactory {
             [codegen],
             [new PlatformStorageProfileDefinition("romfs-package", "ROMFS Package", PlatformStorageProfileKind.LooseFiles, "dc-romfs-package", false)],
             [new PlatformMediaProfileDefinition("dreamcast-elf", "Dreamcast ELF", PlatformMediaLayoutKind.InstallTree, false, true)],
-            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly));
+            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly),
+            assetCookCapabilities: assetCookCapabilities);
+    }
+
+    /// <summary>
+    /// Creates the serialized default Dreamcast texture cook settings used when an asset carries no Dreamcast override.
+    /// </summary>
+    /// <returns>Serialized default Dreamcast texture settings.</returns>
+    static string CreateDefaultSerializedTextureCookSettings() {
+        return DreamcastTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+            MaxResolution = 64,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8
+        });
+    }
+
+    /// <summary>
+    /// Creates the Dreamcast texture format capability set: one straight RGBA source format with opaque or eight-bit alpha.
+    /// </summary>
+    /// <returns>Dreamcast texture format capabilities.</returns>
+    static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
+        return new PlatformTextureFormatCapabilityDefinition(
+            [TextureAssetColorFormat.Rgba32.ToString()],
+            [TextureAssetAlphaPrecision.Opaque, TextureAssetAlphaPrecision.A8],
+            [
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.Opaque),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.A8)
+            ]);
     }
 }
