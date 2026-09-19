@@ -21,7 +21,10 @@ public sealed class DreamcastPlatformCookWorkItemExecutor {
     readonly DreamcastSourceTextureDecoder SourceTextureDecoder = new();
 
     /// <summary>
-    /// Shared engine texture processor that resizes and reformats the decoded texture to the platform's settings.
+    /// Shared engine texture processor, used for format and alpha-precision work only. The image reaching it has
+    /// already been brought within the settings' maximum resolution by
+    /// <see cref="DreamcastTextureDownscaler"/>, so the processor's own single-step nearest-neighbour resize
+    /// never runs. See that class for why this platform owns its filtering.
     /// </summary>
     readonly TextureAssetProcessor TextureProcessor = new();
 
@@ -33,7 +36,8 @@ public sealed class DreamcastPlatformCookWorkItemExecutor {
     /// <summary>
     /// Decodes and cooks one source texture work item into the package source root. The settings used for the
     /// cook are the ones the work item's owning "texture" capability already resolved; this method only decides
-    /// which source asset kinds are accepted, resizes and reformats through the shared engine
+    /// which source asset kinds are accepted, downscales to the settings' maximum resolution through the
+    /// platform's own <see cref="DreamcastTextureDownscaler"/>, reformats through the shared engine
     /// <see cref="TextureAssetProcessor"/>, and hands the result to the Dreamcast-specific twiddle cook.
     /// </summary>
     /// <param name="workItem">Work item describing the source asset, settings, and cooked output path.</param>
@@ -56,15 +60,20 @@ public sealed class DreamcastPlatformCookWorkItemExecutor {
         // comparison decides whether there are one or two objects to release.
         byte[] cookedBytes;
         helengine.TextureAsset decodedTexture = null;
+        helengine.TextureAsset downscaledTexture = null;
         helengine.TextureAsset processedTexture = null;
         try {
             decodedTexture = SourceTextureDecoder.Decode(workItem.SourceAssetPath);
             decodedTexture.Id = workItem.OutputLogicalArtifactId;
-            processedTexture = TextureProcessor.Apply(decodedTexture, settings);
+            downscaledTexture = DreamcastTextureDownscaler.Downscale(decodedTexture, settings.MaxResolution);
+            processedTexture = TextureProcessor.Apply(downscaledTexture, settings);
             cookedBytes = TextureCooker.Cook(processedTexture);
         } finally {
-            if (!ReferenceEquals(processedTexture, decodedTexture)) {
+            if (!ReferenceEquals(processedTexture, downscaledTexture) && !ReferenceEquals(processedTexture, decodedTexture)) {
                 processedTexture?.Dispose();
+            }
+            if (!ReferenceEquals(downscaledTexture, decodedTexture)) {
+                downscaledTexture?.Dispose();
             }
             decodedTexture?.Dispose();
         }

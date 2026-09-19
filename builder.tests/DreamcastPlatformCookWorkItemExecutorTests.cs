@@ -40,7 +40,7 @@ public sealed class DreamcastPlatformCookWorkItemExecutorTests {
         Assert.Equal(DreamcastTextureSchemaIds.Magic, BitConverter.ToUInt32(cooked, 0));
     }
 
-    /// <summary>Confirms the maximum-resolution setting reaches the shared engine processor: a source above the cap is resized down to it.</summary>
+    /// <summary>Confirms the maximum-resolution setting reaches the downscale: a source above the cap is resized down to it.</summary>
     [Fact]
     public void Execute_CapsTheCookedTextureToTheConfiguredMaximumResolution() {
         using TemporaryDirectory temporary = new();
@@ -56,6 +56,29 @@ public sealed class DreamcastPlatformCookWorkItemExecutorTests {
         ushort usedHeight = BitConverter.ToUInt16(cooked, 12);
         Assert.Equal((ushort)64, usedWidth);
         Assert.Equal((ushort)64, usedHeight);
+    }
+
+    /// <summary>
+    /// Confirms the downscale that runs inside the cook is the platform's own box average and not the shared
+    /// engine processor's nearest-neighbour resize. The source is a horizontal ramp of red = x * 16 across
+    /// sixteen columns, cooked with a cap of four, which is two exact halvings. Averaging gives 24, 88, 152 and
+    /// 216; nearest-neighbour would keep 0, 64, 128 and 192. The first cooked texel therefore reads 0xF100 under
+    /// the box average and 0xF000 under nearest-neighbour, a difference the ARGB4444 red nibble preserves.
+    /// </summary>
+    [Fact]
+    public void Execute_BoxAveragesTheDownscaleRatherThanSamplingOnePixelInSixteen() {
+        using TemporaryDirectory temporary = new();
+        string sourceImagePath = WriteHorizontalRampPng(Path.Combine(temporary.Path, "ramp.png"), 16, 16);
+        string packageSourceRoot = Path.Combine(temporary.Path, "package-source");
+        Directory.CreateDirectory(packageSourceRoot);
+        PlatformCookWorkItem workItem = CreateWorkItem(sourceImagePath, "texture", "textures/ramp.dctex", maxResolution: 4);
+
+        new DreamcastPlatformCookWorkItemExecutor().Execute(workItem, packageSourceRoot);
+
+        byte[] cooked = File.ReadAllBytes(Path.Combine(packageSourceRoot, "textures", "ramp.dctex"));
+        Assert.Equal((ushort)4, BitConverter.ToUInt16(cooked, 10));
+        Assert.Equal((ushort)4, BitConverter.ToUInt16(cooked, 12));
+        Assert.Equal((ushort)0xF100, BitConverter.ToUInt16(cooked, DreamcastTextureSchemaIds.HeaderBytes));
     }
 
     /// <summary>
@@ -116,6 +139,17 @@ public sealed class DreamcastPlatformCookWorkItemExecutorTests {
             "sha256:" + new string('1', 64),
             serializedSettings,
             []);
+    }
+
+    static string WriteHorizontalRampPng(string path, int width, int height) {
+        using Bitmap bitmap = new(width, height);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                bitmap.SetPixel(x, y, Color.FromArgb(255, x * 16, 0, 0));
+            }
+        }
+        bitmap.Save(path, ImageFormat.Png);
+        return path;
     }
 
     static string WriteSolidPng(string path, int width, int height) {
