@@ -99,6 +99,7 @@ AUTHORED_SOURCES := \
     src/platform/dreamcast/DreamcastRenderManager3D.cpp \
     src/platform/dreamcast/DreamcastRuntimeModel.cpp \
     src/platform/dreamcast/DreamcastRuntimeMaterial.cpp \
+    src/platform/dreamcast/DreamcastRuntimeTexture.cpp \
     src/platform/dreamcast/DreamcastRuntimeSceneCatalog.cpp \
     src/platform/dreamcast/DreamcastSceneBootstrap.cpp \
     src/platform/dreamcast/DreamcastRuntimeHost.cpp

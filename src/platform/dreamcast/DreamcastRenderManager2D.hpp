@@ -6,10 +6,18 @@
 
 namespace helengine::dreamcast {
 
-/// Minimum Core-compatible 2D adapter. Task 3 adds authored asset support.
+/// Minimum Core-compatible 2D adapter.
+///
+/// Textures are cooked offline into the dc-texture-v1 form and loaded through
+/// BuildTextureFromCooked, which the generated scene asset reference resolver
+/// calls for every texture a scene references. Raw, runtime-built textures are
+/// not supported on this platform.
 class DreamcastRenderManager2D final : public ::RenderManager2D {
 public:
+    ::RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath,
+                                             ::IContentStreamSource* contentStreamSource) override;
     ::RuntimeTexture* BuildTextureFromRaw(::TextureAsset* data) override;
+    void ReleaseTexture(::RuntimeTexture* texture) override;
     void DrawRoundedRect(::IRoundedRectDrawable2D* shape) override;
     void DrawSprite(::ISpriteDrawable2D* sprite) override;
     void DrawText(::ITextDrawable2D* text) override;
