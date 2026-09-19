@@ -26,6 +26,23 @@ public:
     /// dereferencing.
     void installAssembler(AuthoredFrameAssembler* assembler) noexcept;
 
+    /// True when this manager gathers into exactly `assembler`.
+    ///
+    /// DreamcastRenderManager3D calls this before driving the 2D pass: the
+    /// frame it is assembling is only coherent if the manager the Core
+    /// dispatches sprites to is the one holding that same assembler. A null
+    /// argument is never a match.
+    bool sharesAssembler(const AuthoredFrameAssembler* assembler) const noexcept;
+
+    /// Gathers every enabled 2D drawable of every camera into the installed
+    /// assembler.
+    ///
+    /// This is the conventional 2D hook, but nothing in the generated Core
+    /// calls it: Core::Draw drives only RenderManager3D::Draw on this
+    /// platform. DreamcastRenderManager3D calls it from between its own
+    /// gather and present so both lists land in one frame.
+    void Draw() override;
+
     void Dispose() override;
 
     ::RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath,

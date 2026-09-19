@@ -9,16 +9,14 @@
 #include "Core.hpp"
 #include "DirectionalLightComponent.hpp"
 #include "DreamcastAuthoredTransform.hpp"
+#include "DreamcastRenderManager2D.hpp"
 #include "DreamcastRuntimeMaterial.hpp"
 #include "DreamcastRuntimeModel.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
 #include "IContentStreamSource.hpp"
-#include "IDrawable2D.hpp"
 #include "IDrawable3D.hpp"
-#include "IRenderQueue2D.hpp"
 #include "IRenderQueue3D.hpp"
-#include "IRenderVisitor2D.hpp"
 #include "IRenderVisitor3D.hpp"
 #include "LightComponent.hpp"
 #include "ModelAsset.hpp"
@@ -136,53 +134,6 @@ private:
     }
 
     AuthoredFrameAssembler& assembler_;
-    std::uint16_t cameraLayerMask_;
-    AuthoredFrameStatus status_ = AuthoredFrameStatus::Ok;
-};
-
-/// Visits the camera's ordered 2D queue and asks every enabled, layer-visible
-/// drawable to draw itself, which routes it into RenderManager2D::DrawSprite
-/// and from there into the same frame assembler this manager is gathering
-/// into.
-///
-/// The walk lives here rather than in the 2D manager because nothing in the
-/// generated Core drives the 2D list on this platform: Core::Draw calls only
-/// RenderManager3D::Draw, RenderManager2D::Draw is empty, and a drawable's own
-/// Draw() is what reaches RenderManager2D. Walking it from inside the
-/// begin()/present() pair below is therefore the only way sprites and geometry
-/// can land in one frame.
-class Drawable2DCollector final : public ::IRenderVisitor2D {
-public:
-    explicit Drawable2DCollector(std::uint16_t cameraLayerMask) noexcept
-        : cameraLayerMask_(cameraLayerMask) {
-    }
-
-    void Visit(::IDrawable2D* drawable) override {
-        if (drawable == nullptr) {
-            // A null entry never reaches the 2D manager, so it cannot be
-            // failed through the assembler's sprite path; record it here.
-            if (status_ == AuthoredFrameStatus::Ok) {
-                status_ = AuthoredFrameStatus::InvalidSprite;
-            }
-            return;
-        }
-        ::Entity* owner = drawable->get_Parent();
-        // A null owner is deliberately *not* filtered out: the 2D manager
-        // fails the frame for it through the assembler, the same way it does
-        // for a missing or foreign texture. Only a real, disabled or
-        // out-of-layer owner is skipped, matching DrawableCollector.
-        if (owner != nullptr && (!owner->get_IsHierarchyEnabled() ||
-                                 (owner->get_LayerMask() & cameraLayerMask_) == 0)) {
-            return;
-        }
-        drawable->Draw();
-    }
-
-    AuthoredFrameStatus status() const noexcept {
-        return status_;
-    }
-
-private:
     std::uint16_t cameraLayerMask_;
     AuthoredFrameStatus status_ = AuthoredFrameStatus::Ok;
 };
@@ -329,20 +280,25 @@ void DreamcastRenderManager3D::Draw() {
         }
         queue->VisitOrdered(&collector);
         status = collector.status();
-        if (status != AuthoredFrameStatus::Ok) {
-            break;
+    }
+    // Sprites are gathered after the geometry and before present(), so both
+    // lists reach the sink as one frame. Nothing in the generated Core drives
+    // the 2D pass on this platform - Core::Draw calls only
+    // RenderManager3D::Draw - so it is driven from here, at the one point in
+    // the frame where it can still join this assembly.
+    //
+    // The 2D manager is fetched from the Core rather than assumed, and is
+    // required to be gathering into *this* frame's assembler: the Core is
+    // what actually dispatches a drawable's Draw() to a 2D manager, so a
+    // frame assembled against any other manager would drop every sprite and
+    // still report success.
+    if (status == AuthoredFrameStatus::Ok && cameraCount > 0) {
+        auto* render2D = dynamic_cast<DreamcastRenderManager2D*>(core->get_RenderManager2D());
+        if (render2D == nullptr || !render2D->sharesAssembler(assembler_)) {
+            status = AuthoredFrameStatus::InvalidSprite;
+        } else {
+            render2D->Draw();
         }
-        // Sprites are gathered after the geometry of the same camera and
-        // before present(), so both lists reach the sink as one frame. An
-        // absent 2D queue is not a failure: a camera may legitimately carry
-        // no sprite overlay.
-        ::IRenderQueue2D* queue2D = camera->get_RenderQueue2D();
-        if (queue2D == nullptr) {
-            continue;
-        }
-        Drawable2DCollector collector2D(camera->get_LayerMask());
-        queue2D->VisitOrdered(&collector2D);
-        status = collector2D.status();
     }
     if (status == AuthoredFrameStatus::Ok) {
         status = assembler.present(*sink_);

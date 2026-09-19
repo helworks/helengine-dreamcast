@@ -2,19 +2,26 @@
 
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
-#include "DreamcastAuthoredTransform.hpp"
 #include "DreamcastRuntimeTexture.hpp"
 
+#include "Core.hpp"
 #include "Entity.hpp"
+#include "ICamera.hpp"
 #include "IContentStreamSource.hpp"
+#include "IDrawable2D.hpp"
+#include "IRenderQueue2D.hpp"
+#include "IRenderVisitor2D.hpp"
 #include "ISpriteDrawable2D.hpp"
+#include "ObjectManager.hpp"
 #include "byte4.hpp"
+#include "float3.hpp"
 #include "float4.hpp"
-#include "float4x4.hpp"
 #include "int2.hpp"
+#include "runtime/native_list.hpp"
 #include "runtime/native_string.hpp"
 #include "system/io/stream.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -87,10 +94,101 @@ float unitFromByte(std::uint8_t channel) noexcept {
     return static_cast<float>(channel) * (1.0f / 255.0f);
 }
 
+/// Largest departure from the identity quaternion still treated as unrotated.
+///
+/// A sprite whose entity is never rotated carries an exact identity, but a
+/// sprite parented under other entities reaches its world orientation through
+/// float4::Concatenate, which accumulates a little floating-point error per
+/// level. This admits that error and nothing more; it is not a tolerance for
+/// "slightly rotated" art.
+constexpr float kIdentityOrientationEpsilon = 1.0e-4f;
+
+/// True when a world orientation represents no rotation at all.
+///
+/// A quaternion and its negation are the same rotation, so the scalar part is
+/// compared by magnitude. Written as positive comparisons so a NaN component
+/// falls through to false and the sprite is rejected rather than admitted.
+bool isUnrotated(const ::float4& orientation) noexcept {
+    return std::fabs(orientation.X) <= kIdentityOrientationEpsilon &&
+           std::fabs(orientation.Y) <= kIdentityOrientationEpsilon &&
+           std::fabs(orientation.Z) <= kIdentityOrientationEpsilon &&
+           std::fabs(std::fabs(orientation.W) - 1.0f) <= kIdentityOrientationEpsilon;
+}
+
+/// Visits a camera's ordered 2D queue and asks every enabled drawable to draw
+/// itself, which routes it back into this manager through the drawable's own
+/// component - the engine's route, needing no cast here.
+///
+/// No layer mask is applied. The engine's own 2D visitor
+/// (RenderCommandListBuilder2D::Visit) filters on the drawable and its parent
+/// only, so masking here would make a sprite outside the camera mask vanish on
+/// this platform and nowhere else.
+class Drawable2DCollector final : public ::IRenderVisitor2D {
+public:
+    explicit Drawable2DCollector(DreamcastRenderManager2D& manager) noexcept
+        : manager_(manager) {
+    }
+
+    void Visit(::IDrawable2D* drawable) override {
+        if (drawable == nullptr) {
+            // There is nothing to ask to draw itself, so submit the failure
+            // through the one sprite path rather than opening a second
+            // failure channel: DrawSprite(nullptr) fails the frame.
+            manager_.DrawSprite(nullptr);
+            return;
+        }
+        // A disabled owner is skipped, exactly as the engine's visitor does.
+        // A *null* owner is deliberately not skipped: it is forwarded so
+        // DrawSprite fails the frame for it, the same as a missing texture.
+        ::Entity* owner = drawable->get_Parent();
+        if (owner != nullptr && !owner->get_IsHierarchyEnabled()) {
+            return;
+        }
+        drawable->Draw();
+    }
+
+private:
+    DreamcastRenderManager2D& manager_;
+};
+
 } // namespace
 
 void DreamcastRenderManager2D::installAssembler(AuthoredFrameAssembler* assembler) noexcept {
     assembler_ = assembler;
+}
+
+bool DreamcastRenderManager2D::sharesAssembler(
+    const AuthoredFrameAssembler* assembler) const noexcept {
+    return assembler != nullptr && assembler_ == assembler;
+}
+
+void DreamcastRenderManager2D::Draw() {
+    if (assembler_ == nullptr) {
+        throw std::runtime_error(
+            "Dreamcast 2D draw requested before a frame assembler was installed.");
+    }
+    ::Core* core = get_OwnerCore();
+    ::ObjectManager* objectManager = core != nullptr ? core->get_ObjectManager() : nullptr;
+    ::List<::ICamera*>* cameras =
+        objectManager != nullptr ? objectManager->get_Cameras() : nullptr;
+    if (cameras == nullptr) {
+        return;
+    }
+    Drawable2DCollector collector(*this);
+    for (int32_t index = 0; index < cameras->get_Count(); ++index) {
+        ::ICamera* camera = cameras->get_Item(index);
+        if (camera == nullptr) {
+            // The 3D manager already fails the frame for a null camera; there
+            // is no 2D queue to reach through one.
+            continue;
+        }
+        ::IRenderQueue2D* queue = camera->get_RenderQueue2D();
+        if (queue == nullptr) {
+            // Not a failure: a camera may legitimately carry no overlay.
+            continue;
+        }
+        queue->VisitOrdered(&collector);
+    }
 }
 
 void DreamcastRenderManager2D::Dispose() {
@@ -146,36 +244,51 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     // Built empty and filled only when every input is sound. A state left
     // empty carries a null texture, which is exactly the assembler's
     // InvalidSprite condition, so a null drawable, a null owning entity, a
-    // missing texture and a texture built by some other backend all fail the
-    // whole frame rather than being skipped. A skipped sprite would render a
-    // wrong frame and report success.
+    // missing texture, a texture built by some other backend and a rotated
+    // entity all fail the whole frame rather than being skipped. A skipped or
+    // wrongly drawn sprite would render a wrong frame and report success.
     AuthoredSpriteState state{};
     ::Entity* owner = sprite != nullptr ? sprite->get_Parent() : nullptr;
     auto* texture = sprite != nullptr
                         ? dynamic_cast<DreamcastRuntimeTexture*>(sprite->get_Texture())
                         : nullptr;
-    if (owner != nullptr && texture != nullptr) {
+    // AuthoredSpriteState is an axis-aligned rectangle with no rotation field,
+    // so a rotated entity cannot be represented. It is rejected rather than
+    // drawn unrotated: silently dropping the rotation renders a wrong frame
+    // and reports success. Lift this once the sprite contract carries a
+    // rotation, which is what the engine's own emission passes alongside the
+    // quad.
+    const bool unrotated = owner != nullptr && isUnrotated(owner->get_Orientation());
+    if (owner != nullptr && texture != nullptr && unrotated) {
         const SpriteTexture& handle = texture->spriteTexture();
 
         // ISpriteDrawable2D carries no screen position; it comes from the
-        // owning entity. The world transform is used rather than the local
-        // position so a sprite parented under another entity lands where the
-        // hierarchy puts it, and transformPoint of the origin is that
-        // matrix's translation.
-        const Matrix4x4 worldFromEntity = matrixFromGenerated(owner->get_WorldTransformMatrix());
-        const Vec3 origin = transformPoint(worldFromEntity, Vec3{0.0f, 0.0f, 0.0f});
-        state.destinationX = origin.x;
-        state.destinationY = origin.y;
+        // owning entity. Entity::get_Position, get_Scale and get_Orientation
+        // all return *world* values from one cached transform decomposition
+        // (EnsureWorldTransformCache), so a sprite parented under another
+        // entity lands where the hierarchy puts it. They are read instead of
+        // get_WorldTransformMatrix because that accessor is uncached and
+        // recomposes the whole parent chain on every call, and because scale
+        // and orientation are needed here in decomposed form anyway.
+        const ::float3 position = owner->get_Position();
+        state.destinationX = position.X;
+        state.destinationY = position.Y;
 
         // Size is authored in pixels and defaults to (0, 0), which the engine
         // reads as "the whole texture"; RenderCommandListBuilder2D::EmitSprite
-        // makes the same substitution. Width/Height on the runtime texture are
-        // the real image extent, not the padded square.
+        // makes the same substitution and multiplies the result by the world
+        // scale, which an axis-aligned rectangle represents exactly. A
+        // non-positive scale yields a non-positive extent, which the assembler
+        // rejects. Width/Height on the runtime texture are the real image
+        // extent, not the padded square.
         const ::int2 size = sprite->get_Size();
-        state.destinationWidth = size.X > 0 ? static_cast<float>(size.X)
-                                            : static_cast<float>(texture->Width);
-        state.destinationHeight = size.Y > 0 ? static_cast<float>(size.Y)
-                                             : static_cast<float>(texture->Height);
+        const ::float3 scale = owner->get_Scale();
+        state.destinationWidth =
+            (size.X > 0 ? static_cast<float>(size.X) : static_cast<float>(texture->Width)) *
+            scale.X;
+        state.destinationHeight =
+            (size.Y > 0 ? static_cast<float>(size.Y) : static_cast<float>(texture->Height)) *
+            scale.Y;
 
         // get_SourceRect is (x, y, width, height) normalized against the real
         // image; the raster stage samples the padded square.
