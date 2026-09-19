@@ -203,6 +203,35 @@ public sealed class DreamcastCookedContentValidatorTests {
     }
 
     /// <summary>
+    /// Cooked textures are uploaded into the pool the tile accelerator leaves behind and held for the scene's
+    /// lifetime, so the whole set has to fit at once. A total exactly at the limit passes: eight maximum-side
+    /// textures are 8 * 512 * 512 * 2 = 4,194,304 bytes, the limit itself. Only the pixel payload counts; the
+    /// sixteen-byte header is read in the builder and never uploaded.
+    /// </summary>
+    [Fact]
+    public void AcceptsCookedTexturesExactlyAtTheVideoMemoryLimit() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        WriteMaximumSideTextures(temporary.Path, 8);
+
+        Validate(temporary.Path);
+    }
+
+    /// <summary>One texture beyond that total fails the build, naming the total and the limit.</summary>
+    [Fact]
+    public void RejectsCookedTexturesThatCannotAllFitInVideoMemory() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        WriteMaximumSideTextures(temporary.Path, 9);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("video memory", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("4718592", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(DreamcastTextureSchemaIds.MaximumTotalVideoMemoryBytes.ToString(), exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A staged engine asset of an unsupported type is rejected with its path. The rejection applies to engine
     /// assets only; a Dreamcast cooked texture is recognized by its own magic before this branch is reached.
     /// </summary>
@@ -228,6 +257,14 @@ public sealed class DreamcastCookedContentValidatorTests {
     static byte[] CookTexture(int width, int height) {
         using TextureAsset texture = DreamcastCookedTestContent.CreateTexture(width, height);
         return new DreamcastTextureCooker().Cook(texture);
+    }
+
+    /// <summary>Stages the requested number of maximum-side cooked textures, each occupying 512 * 512 * 2 video memory bytes.</summary>
+    static void WriteMaximumSideTextures(string root, int count) {
+        byte[] cooked = CookTexture(DreamcastTextureSchemaIds.MaximumSide, DreamcastTextureSchemaIds.MaximumSide);
+        for (int index = 0; index < count; index++) {
+            DreamcastCookedTestContent.WriteFile(root, $"textures/icon{index}.dctex", cooked);
+        }
     }
 
     static void Stage(

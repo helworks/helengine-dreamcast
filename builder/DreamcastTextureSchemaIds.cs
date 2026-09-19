@@ -44,4 +44,31 @@ public static class DreamcastTextureSchemaIds {
     /// </para>
     /// </summary>
     public const int MaximumSide = 512;
+
+    /// <summary>
+    /// Largest total video memory, in bytes, that the cooked textures of one build may occupy.
+    /// <para>
+    /// This is a third budget and is not the same as either of the other two. The ROMFS payload cap in
+    /// <c>DreamcastContentStager</c> bounds what the embedded filesystem costs in main RAM;
+    /// <see cref="MaximumSide"/> bounds what one texture costs. This bounds what the whole set costs in video
+    /// memory, where textures are allocated once from the pool the tile accelerator leaves behind and held for
+    /// the scene's lifetime. Nothing on the console recovers from an allocation failure mid-load, so the total
+    /// is checked on the developer's machine.
+    /// </para>
+    /// <para>
+    /// Derivation. The runtime's diagnostic snapshot reported 6,937,344 bytes of free video memory after tile
+    /// accelerator initialisation on the 2026-09-16 ten-minute run, recorded in <c>docs/Validation.md</c>. That
+    /// build predates the sprite path; enabling the translucent object-pointer buffer and disabling translucent
+    /// autosort costs roughly 75 KiB more of that pool, leaving about 6,860,544. The limit below is 4 MiB,
+    /// roughly sixty per cent of that, so more than 2.6 MiB stays unaccounted for as margin. It is deliberately
+    /// a round number set below a measurement rather than derived exactly from one, because the measurement on
+    /// a build carrying the sprite path has not been taken yet: the design requires reading the snapshot on such
+    /// a build and recording both the figure and the limit derived from it. Tighten this then.
+    /// </para>
+    /// <para>
+    /// Only the pixel payload counts. The sixteen-byte header is read in the builder and never uploaded, and
+    /// <c>pvr_mem_malloc</c> is asked for exactly <c>side * side * 2</c> bytes.
+    /// </para>
+    /// </summary>
+    public const long MaximumTotalVideoMemoryBytes = 4L * 1024L * 1024L;
 }

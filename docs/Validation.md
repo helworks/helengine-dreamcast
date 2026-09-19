@@ -293,3 +293,30 @@ ever needed on device, flip `codegen-compact-native-exception-messages` to
 be fixed first.
 
 Physical hardware remains untested, as for all prior rows in this document.
+
+## Cooked texture video memory budget (build-time check)
+
+The sprite milestone adds a build-time check that the cooked textures of one
+build fit in video memory at once, enforced in
+`DreamcastCookedContentValidator` against
+`DreamcastTextureSchemaIds.MaximumTotalVideoMemoryBytes`. Only the pixel
+payload counts: the sixteen-byte cooked header is read in the builder and never
+uploaded, and `pvr_mem_malloc` is asked for exactly `side * side * 2` bytes.
+
+| Quantity | Bytes | Source |
+|---|---|---|
+| Free video memory after tile accelerator initialisation | 6,937,344 | `diag_vram` from the 2026-09-16 ten-minute run recorded above |
+| Approximate additional cost of the translucent object-pointer buffer with translucent autosort disabled | about 76,800 | measured during the sprite raster work; the sprite-carrying build's own snapshot has not been read |
+| Free video memory implied for a sprite-carrying build | about 6,860,544 | derived, not measured |
+| **Limit enforced at build time** | **4,194,304** | round number set below the derived figure, leaving over 2.6 MiB unaccounted as margin |
+
+**This limit is provisional.** The design requires the real figure to be read
+from the diagnostic snapshot on a build carrying the sprite path, and the limit
+derived from that measurement. No emulator has been run for this milestone, so
+that measurement is outstanding; the limit above is deliberately conservative
+rather than tight, and should be re-derived and tightened once the snapshot is
+read.
+
+For scale, the demodisc package's own cooked textures at the 64 pixel cap are
+30 textures plus 2 font atlases at `64 * 64 * 2` = 8,192 bytes each, about
+262,144 bytes in total, roughly six per cent of the limit.

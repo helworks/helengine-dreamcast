@@ -59,6 +59,8 @@ public sealed class DreamcastCookedContentValidator {
 
         int modelCount = 0;
         int materialCount = 0;
+        int textureCount = 0;
+        long textureVideoMemoryBytes = 0;
         foreach (string fullPath in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).OrderBy(path => path, StringComparer.Ordinal)) {
             string relativePath = Path.GetRelativePath(root, fullPath).Replace('\\', '/');
             if (string.Equals(relativePath, scenePath, StringComparison.Ordinal)) {
@@ -66,7 +68,8 @@ public sealed class DreamcastCookedContentValidator {
             }
             byte[] bytes = ReadStagedFile(root, relativePath);
             if (HasCookedTextureMagic(bytes)) {
-                ValidateCookedTexture(bytes, relativePath);
+                textureVideoMemoryBytes += ValidateCookedTexture(bytes, relativePath);
+                textureCount++;
                 continue;
             }
             Asset staged = DeserializeAsset(relativePath, bytes);
@@ -85,6 +88,14 @@ public sealed class DreamcastCookedContentValidator {
         }
         if (materialCount < 1) {
             throw new InvalidOperationException("Staged package contains no dc-standard material; the startup mesh has no material.");
+        }
+        // Every cooked texture is uploaded into the pool the tile accelerator leaves behind and held for the
+        // scene's lifetime, so the whole set has to fit at once. A runtime allocation failure fails the load on
+        // the console with nothing to fall back to, so the total is checked here instead. This is a separate
+        // budget from the ROMFS payload cap, which bounds main RAM, not video memory.
+        if (textureVideoMemoryBytes > DreamcastTextureSchemaIds.MaximumTotalVideoMemoryBytes) {
+            throw new InvalidOperationException(
+                $"Staged package cooks {textureCount} textures totalling {textureVideoMemoryBytes} bytes of video memory, above the Dreamcast limit of {DreamcastTextureSchemaIds.MaximumTotalVideoMemoryBytes} bytes.");
         }
     }
 
@@ -154,7 +165,8 @@ public sealed class DreamcastCookedContentValidator {
     /// </summary>
     /// <param name="bytes">Staged cooked texture bytes, already known to carry the <c>DCTX</c> magic.</param>
     /// <param name="path">Staged path used in failure messages.</param>
-    static void ValidateCookedTexture(byte[] bytes, string path) {
+    /// <returns>Video memory bytes the payload's pixels occupy once uploaded.</returns>
+    static long ValidateCookedTexture(byte[] bytes, string path) {
         if (bytes.Length < DreamcastTextureSchemaIds.HeaderBytes) {
             throw new InvalidOperationException(
                 $"Cooked texture '{path}' is {bytes.Length} bytes, shorter than the {DreamcastTextureSchemaIds.HeaderBytes}-byte {DreamcastTextureSchemaIds.FormatId} header.");
@@ -188,6 +200,7 @@ public sealed class DreamcastCookedContentValidator {
             throw new InvalidOperationException(
                 $"Cooked texture '{path}' is {bytes.LongLength} bytes; a {paddedSide} square ARGB4444 payload is {DreamcastTextureSchemaIds.HeaderBytes + pixelBytes}.");
         }
+        return pixelBytes;
     }
 
     static void ValidateModel(ModelAsset model, string path) {
