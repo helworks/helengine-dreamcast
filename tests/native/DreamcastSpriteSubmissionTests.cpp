@@ -219,6 +219,37 @@ void NonFiniteViewportRejectsAnOtherwiseValidSprite() {
     EXPECT(sink.presentCount == 0);
 }
 
+/// Presents a frame that submits no sprite at all, so present()'s own viewport
+/// guard is reached directly rather than through addSprite having failed first.
+void expectSpritelessFrameRejectsViewport(float width, float height) {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    assembler.begin(width, height);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidViewport);
+    EXPECT(sink.presentCount == 0);
+    EXPECT(assembler.summary().spriteCount == 0);
+}
+
+void ASpritelessFrameWithABadViewportIsRejectedByPresent() {
+    // This is the one path in the sprite milestone that changes pre-existing
+    // 3D behaviour: a frame carrying no sprites at all used to reach the
+    // geometry projection whatever its viewport was, and now fails first.
+    // Every other viewport test above reaches the guard only because
+    // addSprite already latched the failure, so without this case the guard
+    // inside present() is never exercised on its own. viewportWidth_ and
+    // viewportHeight_ feed the focal length and clip math, where a zero
+    // divides, a negative mirrors, and a NaN or infinity poisons every
+    // comparison downstream.
+    expectSpritelessFrameRejectsViewport(0.0f, 480.0f);
+    expectSpritelessFrameRejectsViewport(640.0f, 0.0f);
+    expectSpritelessFrameRejectsViewport(-640.0f, 480.0f);
+    expectSpritelessFrameRejectsViewport(640.0f, -480.0f);
+    expectSpritelessFrameRejectsViewport(std::numeric_limits<float>::quiet_NaN(), 480.0f);
+    expectSpritelessFrameRejectsViewport(640.0f, std::numeric_limits<float>::infinity());
+}
+
 void SourceSpanRescalesAnImageRectangleOntoThePaddedSquare() {
     // The whole image of a 3x2 picture cooked into an 8x8 square occupies
     // three eighths of U and two eighths of V, not the whole square. Getting
@@ -285,6 +316,7 @@ int main() {
     ZeroViewportRejectsAnOtherwiseValidSprite();
     NegativeViewportRejectsAnOtherwiseValidSprite();
     NonFiniteViewportRejectsAnOtherwiseValidSprite();
+    ASpritelessFrameWithABadViewportIsRejectedByPresent();
     SourceSpanRescalesAnImageRectangleOntoThePaddedSquare();
     SourceSpanFromADegenerateTextureIsRejectedByTheAssembler();
     if (failures != 0) {
