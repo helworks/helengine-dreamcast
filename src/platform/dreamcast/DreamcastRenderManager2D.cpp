@@ -281,6 +281,23 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
         // non-positive scale yields a non-positive extent, which the assembler
         // rejects. Width/Height on the runtime texture are the real image
         // extent, not the padded square.
+        //
+        // The fallback is a known per-platform hazard and is kept deliberately.
+        // Cooked textures on this platform are capped at 64 pixels per axis, so
+        // the runtime extent is the POST-downscale size: a sprite relying on the
+        // fallback draws a quarter the size here that it does on a platform
+        // cooking at native resolution. It is not a defect today because the
+        // scene this milestone targets never relies on it - every sprite in the
+        // console instruction Blueprint carries an explicit Size, produced by
+        // ResolvedControlIcon::FitDisplaySizeWithin, which clamps each axis to a
+        // minimum of one and is fed authored bounds of 48x48, 38x48 and 46x46.
+        // The serialized Blueprint was read to confirm this: every SpriteComponent
+        // Size field in it is nonzero. Diverging from the engine's own
+        // substitution would be the larger risk, since a scene that does rely on
+        // the fallback would then differ from every other platform in a second
+        // way. If a scene ever does rely on it, the honest fix is to carry the
+        // pre-downscale extent in the cooked header rather than to special-case
+        // the size here.
         const ::int2 size = sprite->get_Size();
         const ::float3 scale = owner->get_Scale();
         state.destinationWidth =
