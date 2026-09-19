@@ -89,28 +89,43 @@ public sealed class DreamcastSourceTextureDecoder {
     /// <returns>Raw texture asset containing straight RGBA pixel bytes.</returns>
     helengine.TextureAsset DecodeEngineTextureAsset(string sourceAssetPath) {
         helengine.Asset deserializedAsset = helengine.files.AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(sourceAssetPath));
-        if (deserializedAsset is not helengine.TextureAsset sourceTexture) {
+        // TextureAsset owns native pixel and palette buffers and implements IDisposable, so the deserialized
+        // instance is released on every exit, including the rejection paths below. The returned asset takes a
+        // copy of the pixel bytes rather than aliasing the source buffer, so the two assets never share a buffer
+        // one of them is about to release.
+        helengine.TextureAsset sourceTexture = deserializedAsset as helengine.TextureAsset;
+        if (sourceTexture == null) {
+            if (deserializedAsset is IDisposable unexpectedDisposable) {
+                unexpectedDisposable.Dispose();
+            }
             throw new InvalidOperationException($"Dreamcast texture cook source '{sourceAssetPath}' did not contain a texture asset.");
         }
-        if (sourceTexture.ColorFormat != helengine.TextureAssetColorFormat.Rgba32) {
-            throw new InvalidOperationException($"Dreamcast texture cook source '{sourceAssetPath}' must be Rgba32; received '{sourceTexture.ColorFormat}'.");
-        }
-        if (sourceTexture.Width < 1 || sourceTexture.Height < 1) {
-            throw new InvalidOperationException("Source textures must have positive dimensions.");
-        }
 
-        int expectedByteLength = sourceTexture.Width * sourceTexture.Height * 4;
-        if (sourceTexture.Colors == null || sourceTexture.Colors.Length != expectedByteLength) {
-            throw new InvalidOperationException($"Dreamcast texture cook source '{sourceAssetPath}' pixel bytes must match Width * Height * 4.");
-        }
+        try {
+            if (sourceTexture.ColorFormat != helengine.TextureAssetColorFormat.Rgba32) {
+                throw new InvalidOperationException($"Dreamcast texture cook source '{sourceAssetPath}' must be Rgba32; received '{sourceTexture.ColorFormat}'.");
+            }
+            if (sourceTexture.Width < 1 || sourceTexture.Height < 1) {
+                throw new InvalidOperationException("Source textures must have positive dimensions.");
+            }
 
-        return new helengine.TextureAsset {
-            Width = sourceTexture.Width,
-            Height = sourceTexture.Height,
-            Colors = sourceTexture.Colors,
-            PaletteColors = Array.Empty<byte>(),
-            ColorFormat = helengine.TextureAssetColorFormat.Rgba32,
-            AlphaPrecision = sourceTexture.AlphaPrecision
-        };
+            int expectedByteLength = sourceTexture.Width * sourceTexture.Height * 4;
+            if (sourceTexture.Colors == null || sourceTexture.Colors.Length != expectedByteLength) {
+                throw new InvalidOperationException($"Dreamcast texture cook source '{sourceAssetPath}' pixel bytes must match Width * Height * 4.");
+            }
+
+            byte[] ownedColors = new byte[expectedByteLength];
+            Buffer.BlockCopy(sourceTexture.Colors, 0, ownedColors, 0, expectedByteLength);
+            return new helengine.TextureAsset {
+                Width = sourceTexture.Width,
+                Height = sourceTexture.Height,
+                Colors = ownedColors,
+                PaletteColors = Array.Empty<byte>(),
+                ColorFormat = helengine.TextureAssetColorFormat.Rgba32,
+                AlphaPrecision = sourceTexture.AlphaPrecision
+            };
+        } finally {
+            sourceTexture.Dispose();
+        }
     }
 }

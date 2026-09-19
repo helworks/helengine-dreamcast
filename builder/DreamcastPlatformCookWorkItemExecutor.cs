@@ -50,10 +50,24 @@ public sealed class DreamcastPlatformCookWorkItemExecutor {
         }
 
         TextureAssetProcessorSettings settings = DreamcastTextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
-        helengine.TextureAsset decodedTexture = SourceTextureDecoder.Decode(workItem.SourceAssetPath);
-        decodedTexture.Id = workItem.OutputLogicalArtifactId;
-        helengine.TextureAsset processedTexture = TextureProcessor.Apply(decodedTexture, settings);
-        byte[] cookedBytes = TextureCooker.Cook(processedTexture);
+        // Every TextureAsset below owns native pixel and palette buffers and implements IDisposable, so each one
+        // is released once the cooked bytes have been produced, on the exceptional path as well. The processor
+        // returns its input unchanged when no work is needed, so the two references can alias and a reference
+        // comparison decides whether there are one or two objects to release.
+        byte[] cookedBytes;
+        helengine.TextureAsset decodedTexture = null;
+        helengine.TextureAsset processedTexture = null;
+        try {
+            decodedTexture = SourceTextureDecoder.Decode(workItem.SourceAssetPath);
+            decodedTexture.Id = workItem.OutputLogicalArtifactId;
+            processedTexture = TextureProcessor.Apply(decodedTexture, settings);
+            cookedBytes = TextureCooker.Cook(processedTexture);
+        } finally {
+            if (!ReferenceEquals(processedTexture, decodedTexture)) {
+                processedTexture?.Dispose();
+            }
+            decodedTexture?.Dispose();
+        }
 
         string destinationPath = Path.Combine(
             Path.GetFullPath(packageSourceRootPath),
