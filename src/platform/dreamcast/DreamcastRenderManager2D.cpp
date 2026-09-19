@@ -2,11 +2,10 @@
 
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
-#include "DreamcastRasterRenderer.hpp"
 #include "DreamcastRuntimeTexture.hpp"
-#include "DreamcastTextureFormat.hpp"
 
 #include "IContentStreamSource.hpp"
+#include "runtime/native_string.hpp"
 #include "system/io/stream.hpp"
 
 #include <cstddef>
@@ -19,13 +18,15 @@ namespace helengine::dreamcast {
 namespace {
 
 /// Largest cooked texture file this platform will read into memory before
-/// parsing it. A dc-texture-v1 payload is at most the maximum samplable square
-/// at two bytes per pixel, so anything larger cannot be a valid file and must
-/// not be allowed to claim main RAM on a 16 MiB console.
-constexpr std::size_t kMaxCookedTextureBytes =
-    kCookedTextureHeaderBytes +
-    (static_cast<std::size_t>(renderer_detail::kMaxSpriteTextureSide) *
-     renderer_detail::kMaxSpriteTextureSide * 2u);
+/// parsing it, so a corrupt or mis-staged file cannot claim main RAM on a
+/// 16 MiB console before being rejected.
+///
+/// The binding limit is DreamcastContentStreamSource's one MiB cooked payload
+/// cap, which refuses a larger file at open; the dc-texture-v1 format ceiling
+/// (a 1024 square at two bytes per pixel, just over two MiB) is higher but
+/// unreachable, so advertising it here would promise support that does not
+/// exist. One MiB admits every padded side up to and including 512.
+constexpr std::size_t kMaxCookedTextureBytes = 1024u * 1024u;
 
 struct StreamLease {
     ::Stream* value;
@@ -79,8 +80,10 @@ std::vector<std::uint8_t> readCookedAsset(const std::string& cookedAssetPath,
 ::RuntimeTexture* DreamcastRenderManager2D::BuildTextureFromCooked(
     std::string cookedAssetPath,
     ::IContentStreamSource* contentStreamSource) {
-    if (cookedAssetPath.empty()) {
-        throw std::invalid_argument("Dreamcast cooked texture path cannot be empty.");
+    // Matches the generated base, which rejects a whitespace-only path as well
+    // as an empty one; without this a blank path reaches the stream source.
+    if (::String::IsNullOrWhiteSpace(cookedAssetPath)) {
+        throw std::invalid_argument("Dreamcast cooked texture path must be provided.");
     }
     if (contentStreamSource == nullptr) {
         throw std::invalid_argument("Dreamcast content stream source cannot be null.");
