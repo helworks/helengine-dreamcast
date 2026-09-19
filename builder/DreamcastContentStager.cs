@@ -7,15 +7,16 @@ namespace helengine.dreamcast.builder;
 /// <summary>Copies only manifest-declared, runtime-loadable cooked artifacts into a deterministic ROMFS staging tree.</summary>
 /// <remarks>
 /// The Dreamcast v0.2 runtime can load scenes, models, platform materials and textures. Scenes, models and
-/// platform materials copy verbatim, byte for byte. Textures are no longer converted here: the editor build graph
-/// now declares a builder-owned "texture" cook capability, so <see cref="DreamcastPlatformCookWorkItemExecutor"/>
-/// already wrote each texture as twiddled ARGB4444 <c>dc-texture-v1</c> bytes into the package source root before
-/// staging runs, and the editor leaves those builder-owned outputs out of <c>manifest.CookedArtifacts</c>
-/// entirely. This stager embeds them by copying the builder's own cooked relative paths verbatim, the same way it
-/// copies every other cooked file. Declared artifacts of any other serialized type (fonts, audio, imported blobs)
-/// are still required to exist but are not staged, because the runtime could never open them and the ROMFS is
-/// resident in console RAM. The omitted paths are exposed through <see cref="LastSkippedRelativePaths"/> for
-/// diagnostics.
+/// platform materials copy verbatim, byte for byte. Textures reach the ROMFS by a different route entirely: the
+/// editor build graph declares a builder-owned "texture" cook capability, so
+/// <see cref="DreamcastPlatformCookWorkItemExecutor"/> already wrote each texture as twiddled ARGB4444
+/// <c>dc-texture-v1</c> bytes into the package source root before staging runs, and the editor leaves those
+/// builder-owned outputs out of <c>manifest.CookedArtifacts</c> entirely. This stager embeds them by copying the
+/// builder's own cooked relative paths verbatim. A declared artifact that deserializes as a generic engine
+/// texture is therefore *not* a Dreamcast texture and is skipped, because the runtime cannot open the engine
+/// format. Declared artifacts of any other serialized type (fonts, audio, imported blobs) are skipped for the
+/// same reason: the runtime could never open them and the ROMFS is resident in console RAM. The omitted paths
+/// are exposed through <see cref="LastSkippedRelativePaths"/> for diagnostics.
 /// </remarks>
 public sealed class DreamcastContentStager {
     const long MaximumPayloadBytes = 1024 * 1024;
@@ -168,17 +169,21 @@ public sealed class DreamcastContentStager {
         /// <summary>The runtime cannot open this artifact type; it must exist but is left out of the ROMFS.</summary>
         NotLoadable,
 
-        /// <summary>A scene, model, platform material or texture: staged by copying its bytes verbatim.</summary>
+        /// <summary>A scene, model or platform material: staged by copying its bytes verbatim.</summary>
         VerbatimCopy
     }
 
     /// <summary>
     /// Deserializes the cooked file exactly once and classifies it. A generic engine-serialized texture
-    /// classifies as <see cref="ArtifactStageKind.VerbatimCopy"/> like every other loadable artifact: conversion
-    /// into the Dreamcast's own twiddled <c>dc-texture-v1</c> form no longer happens here, it already happened in
-    /// <see cref="DreamcastPlatformCookWorkItemExecutor"/> before staging ran. Any deserialized instance that
-    /// implements <see cref="IDisposable"/> is disposed here, before returning, since neither the verbatim-copy
-    /// nor the skip path needs the instance itself.
+    /// classifies as <see cref="ArtifactStageKind.NotLoadable"/>: the Dreamcast runtime opens textures only in
+    /// the platform's own twiddled <c>dc-texture-v1</c> form, which
+    /// <see cref="DreamcastPlatformCookWorkItemExecutor"/> writes before staging runs and which reaches the ROMFS
+    /// through <c>builderCookedRelativePaths</c>, not through this classifier. Real builds never declare an
+    /// engine-format texture here at all, because the editor leaves builder-owned outputs out of
+    /// <c>manifest.CookedArtifacts</c>; staging one verbatim would put bytes the runtime rejects at load into a
+    /// resident ROMFS, so the dead path fails safe by skipping instead. Any deserialized instance that implements
+    /// <see cref="IDisposable"/> is disposed here, before returning, since neither the verbatim-copy nor the skip
+    /// path needs the instance itself.
     /// </summary>
     static ArtifactStageKind ClassifyRuntimeLoadable(string sourcePath) {
         byte[] bytes = File.ReadAllBytes(sourcePath);
@@ -193,7 +198,7 @@ public sealed class DreamcastContentStager {
             return ArtifactStageKind.NotLoadable;
         }
 
-        if (asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset || asset is helengine.TextureAsset) {
+        if (asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset) {
             if (asset is IDisposable loadableDisposable) {
                 loadableDisposable.Dispose();
             }

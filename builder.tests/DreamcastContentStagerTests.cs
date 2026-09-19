@@ -55,23 +55,24 @@ public sealed class DreamcastContentStagerTests {
     }
 
     /// <summary>
-    /// Confirms a declared cooked texture is copied byte-for-byte and its declared hash verified against the
-    /// copy, exactly as for every other artifact. Conversion into the Dreamcast twiddled form no longer happens
-    /// in the stager: the builder-owned "texture" cook capability means real builds never declare a texture this
-    /// way at all, but if one ever is declared, the stager must not silently reinterpret and convert it.
+    /// Confirms a declared artifact that deserializes as a generic engine texture is skipped rather than staged.
+    /// The Dreamcast runtime opens textures only in the platform's own twiddled <c>dc-texture-v1</c> form, which
+    /// the cook work-item executor writes and which reaches the ROMFS through the builder-cooked path instead.
+    /// The builder-owned "texture" capability means real builds never declare a texture this way at all, so this
+    /// path is dead today; staging it verbatim would nonetheless put bytes the runtime rejects at load into a
+    /// resident ROMFS, so the dead path must fail safe.
     /// </summary>
     [Fact]
-    public void Stage_CopiesADeclaredCookedTextureVerbatimRatherThanConverting() {
+    public void Stage_SkipsADeclaredEngineFormatTextureRatherThanStagingBytesTheRuntimeRejects() {
         using DreamcastCookedTestContent content = DreamcastCookedTestContent.CreateWithTexture();
-        byte[] sourceBytes = File.ReadAllBytes(Path.Combine(content.SourceRoot, "textures", "icon.hasset"));
 
-        IReadOnlyList<string> stagedPaths = new DreamcastContentStager().Stage(
+        DreamcastContentStager stager = new();
+        IReadOnlyList<string> stagedPaths = stager.Stage(
             content.Manifest, content.SourceRoot, content.DestinationRoot, [], CancellationToken.None);
 
-        string staged = Path.Combine(content.DestinationRoot, "textures", "icon.hasset");
-        Assert.Contains("textures/icon.hasset", stagedPaths);
-        Assert.True(File.Exists(staged));
-        Assert.Equal(sourceBytes, File.ReadAllBytes(staged));
+        Assert.DoesNotContain("textures/icon.hasset", stagedPaths);
+        Assert.Contains("textures/icon.hasset", stager.LastSkippedRelativePaths);
+        Assert.False(File.Exists(Path.Combine(content.DestinationRoot, "textures", "icon.hasset")));
     }
 
     /// <summary>
