@@ -26,7 +26,11 @@ public sealed class DreamcastTextureCooker {
                 $"Dreamcast {DreamcastTextureSchemaIds.FormatId} rejects zero-sized texture '{name}' ({asset.Width}x{asset.Height}).");
         }
 
-        int side = NextPowerOfTwo(Math.Max(asset.Width, asset.Height));
+        // Pad up to the smallest side the PVR can sample. A one-by-one icon is
+        // legitimate art and must not fail a build; it becomes an eight-by-eight
+        // payload whose header still records the real one-by-one used extent.
+        int side = Math.Max(DreamcastTextureSchemaIds.MinimumSide,
+                            NextPowerOfTwo(Math.Max(asset.Width, asset.Height)));
         if (side > DreamcastTextureSchemaIds.MaximumSide) {
             throw new InvalidOperationException(
                 $"Dreamcast {DreamcastTextureSchemaIds.FormatId} rejects texture '{name}': padded side {side} exceeds the hardware limit of {DreamcastTextureSchemaIds.MaximumSide}.");

@@ -12,10 +12,27 @@ public sealed class DreamcastTextureCookerTests {
         Assert.Equal((uint)DreamcastTextureSchemaIds.Magic, BitConverter.ToUInt32(cooked, 0));
         Assert.Equal((ushort)1, BitConverter.ToUInt16(cooked, 4));
         Assert.Equal((ushort)0, BitConverter.ToUInt16(cooked, 6));
-        Assert.Equal((ushort)4, BitConverter.ToUInt16(cooked, 8));
+        Assert.Equal((ushort)8, BitConverter.ToUInt16(cooked, 8));
         Assert.Equal((ushort)3, BitConverter.ToUInt16(cooked, 10));
         Assert.Equal((ushort)2, BitConverter.ToUInt16(cooked, 12));
-        Assert.Equal(DreamcastTextureSchemaIds.HeaderBytes + (4 * 4 * 2), cooked.Length);
+        Assert.Equal(DreamcastTextureSchemaIds.HeaderBytes + (8 * 8 * 2), cooked.Length);
+    }
+
+    /// <summary>
+    /// Confirms art below the samplable minimum is padded up rather than rejected,
+    /// and that the header still records its real used extent.
+    /// </summary>
+    [Fact]
+    public void Cook_PadsASourceBelowTheMinimumSideUpToTheMinimum() {
+        byte[] cooked = new DreamcastTextureCooker().Cook(CreateRgba32(1, 1));
+
+        Assert.Equal((ushort)DreamcastTextureSchemaIds.MinimumSide, BitConverter.ToUInt16(cooked, 8));
+        Assert.Equal((ushort)1, BitConverter.ToUInt16(cooked, 10));
+        Assert.Equal((ushort)1, BitConverter.ToUInt16(cooked, 12));
+        Assert.Equal(
+            DreamcastTextureSchemaIds.HeaderBytes +
+                (DreamcastTextureSchemaIds.MinimumSide * DreamcastTextureSchemaIds.MinimumSide * 2),
+            cooked.Length);
     }
 
     /// <summary>Confirms an opaque white source pixel becomes ARGB4444 0xFFFF at its twiddled position.</summary>
@@ -33,7 +50,7 @@ public sealed class DreamcastTextureCookerTests {
     /// <summary>Confirms padding is transparent black so no colour can bleed at the sampled edge.</summary>
     [Fact]
     public void Cook_FillsPaddingWithTransparentBlack() {
-        // 3x2 pads to a 4x4 square, so (3,3) is padding while (2,1) is real.
+        // 3x2 pads to an 8x8 square, so (3,3) is padding while (2,1) is real.
         // Every source pixel is opaque white, so a zero can only come from padding.
         helengine.TextureAsset asset = CreateRgba32(3, 2);
         Array.Fill(asset.Colors, (byte)0xFF);
