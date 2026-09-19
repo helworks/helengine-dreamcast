@@ -239,7 +239,7 @@ git commit -m "feat(dc): add the PVR twiddle reorder for square textures"
 
 **Interfaces:**
 - Consumes: `DreamcastTextureTwiddle.Twiddle(ushort[], int)` from Task 1.
-- Produces: `public sealed class DreamcastTextureCooker` with `public byte[] Cook(helengine.TextureAsset asset)`. Constants on `DreamcastTextureSchemaIds`: `FormatId = "dc-texture-v1"`, `Magic = 0x58544344u`, `Version = (ushort)1`, `MaximumSide = 1024`, `HeaderBytes = 16`.
+- Produces: `public sealed class DreamcastTextureCooker` with `public byte[] Cook(helengine.TextureAsset asset)`. Constants on `DreamcastTextureSchemaIds`: `FormatId = "dc-texture-v1"`, `Magic = 0x58544344u`, `Version = (ushort)1`, `MinimumSide = 8`, `MaximumSide = 512`, `HeaderBytes = 16`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -370,8 +370,13 @@ public static class DreamcastTextureSchemaIds {
     /// <summary>Header size in bytes, before the pixel payload.</summary>
     public const int HeaderBytes = 16;
 
-    /// <summary>Largest padded square side the PVR can sample.</summary>
-    public const int MaximumSide = 1024;
+    /// <summary>Smallest padded square side. Below this the console's burst copy moves nothing.</summary>
+    public const int MinimumSide = 8;
+
+    /// <summary>Largest padded square side this platform can LOAD, bounded by the 1 MiB content read
+    /// cap rather than by the hardware. The tile accelerator itself samples up to 1024, which is the
+    /// bound the runtime parser keeps; only this number moves if the read cap is raised.</summary>
+    public const int MaximumSide = 512;
 }
 ```
 
