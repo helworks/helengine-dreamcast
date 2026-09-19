@@ -2,7 +2,7 @@ using helengine.files;
 
 namespace helengine.dreamcast.builder;
 
-/// <summary>Validates staged cooked scene, model and material data with the normal engine deserializers before native compilation.</summary>
+/// <summary>Validates staged cooked scene, model, material and texture data before native compilation.</summary>
 public sealed class DreamcastCookedContentValidator {
     const int MaximumPositions = 64;
     const int MaximumTriangles = 128;
@@ -12,12 +12,22 @@ public sealed class DreamcastCookedContentValidator {
     const string AmbientLightTypeId = "helengine.AmbientLightComponent";
     const string RendererFamilyId = "dc-standard";
 
-    /// <summary>Validates the startup scene cardinality and every staged model and material in the ROMFS tree.</summary>
+    /// <summary>Validates the startup scene cardinality and every staged model, material and texture in the ROMFS tree.</summary>
     /// <remarks>
+    /// <para>
     /// The cooked scene's reference list still carries authored paths while the runtime resolves
-    /// component payloads to cooked paths, so every staged file is classified by its deserialized
-    /// type instead of by reference. Exact one-model/one-material usage is re-checked at runtime
+    /// component payloads to cooked paths, so every staged file is classified by its own bytes
+    /// instead of by reference. Exact one-model/one-material usage is re-checked at runtime
     /// through the owned reference counts after the startup scene loads.
+    /// </para>
+    /// <para>
+    /// Two kinds of staged file exist and they are not both engine assets. Scenes, models and materials are
+    /// serialized engine assets and are validated through the engine deserializers. Textures are the platform's
+    /// own <c>dc-texture-v1</c> payloads, written by <see cref="DreamcastPlatformCookWorkItemExecutor"/> and
+    /// carrying the <c>DCTX</c> magic rather than the engine's, so they are recognized by that magic and
+    /// validated against the same header rules the runtime parser enforces. Handing them to the engine
+    /// deserializer would fail every build that cooks even one texture.
+    /// </para>
     /// </remarks>
     /// <param name="stagedContentRoot">Fresh staging root produced by the content stager.</param>
     /// <param name="startupSceneCookedRelativePath">Normalized cooked path of the startup scene.</param>
@@ -30,7 +40,7 @@ public sealed class DreamcastCookedContentValidator {
             throw new DirectoryNotFoundException($"Staged content root does not exist: {root}");
         }
         string scenePath = DreamcastSceneCompatibilityValidator.NormalizeRelativePath(startupSceneCookedRelativePath, "startup scene path");
-        Asset sceneAsset = ReadAsset(root, scenePath);
+        Asset sceneAsset = DeserializeAsset(scenePath, ReadStagedFile(root, scenePath));
         if (sceneAsset is not SceneAsset scene) {
             throw new InvalidOperationException($"Startup scene '{scenePath}' did not deserialize as a scene asset.");
         }
@@ -54,7 +64,12 @@ public sealed class DreamcastCookedContentValidator {
             if (string.Equals(relativePath, scenePath, StringComparison.Ordinal)) {
                 continue;
             }
-            Asset staged = ReadAsset(root, relativePath);
+            byte[] bytes = ReadStagedFile(root, relativePath);
+            if (HasCookedTextureMagic(bytes)) {
+                ValidateCookedTexture(bytes, relativePath);
+                continue;
+            }
+            Asset staged = DeserializeAsset(relativePath, bytes);
             if (staged is ModelAsset model) {
                 ValidateModel(model, relativePath);
                 modelCount++;
@@ -96,7 +111,11 @@ public sealed class DreamcastCookedContentValidator {
         }
     }
 
-    static Asset ReadAsset(string root, string relativePath) {
+    /// <summary>Reads one staged file's bytes after confirming it resolves inside the staging root.</summary>
+    /// <param name="root">Absolute staging root.</param>
+    /// <param name="relativePath">Normalized path within the staging root.</param>
+    /// <returns>The file's bytes.</returns>
+    static byte[] ReadStagedFile(string root, string relativePath) {
         string fullPath = Path.GetFullPath(Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
         if (!fullPath.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) {
             throw new InvalidOperationException($"Cooked reference escapes the staged root: '{relativePath}'.");
@@ -104,13 +123,71 @@ public sealed class DreamcastCookedContentValidator {
         if (!File.Exists(fullPath)) {
             throw new InvalidOperationException($"Startup scene references a cooked asset that is missing from the staged package: '{relativePath}'.");
         }
+        return File.ReadAllBytes(fullPath);
+    }
+
+    /// <summary>Deserializes one staged file through the engine asset serializer.</summary>
+    /// <param name="relativePath">Staged path used in failure messages.</param>
+    /// <param name="bytes">Serialized engine asset bytes.</param>
+    /// <returns>The deserialized asset.</returns>
+    static Asset DeserializeAsset(string relativePath, byte[] bytes) {
         Asset asset;
         try {
-            asset = AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(fullPath));
+            asset = AssetSerializer.DeserializeFromBytes(bytes);
         } catch (Exception exception) when (exception is not InvalidOperationException) {
             throw new InvalidOperationException($"Cooked asset '{relativePath}' could not be deserialized: {exception.Message}", exception);
         }
         return asset ?? throw new InvalidOperationException($"Cooked asset '{relativePath}' deserialized to null.");
+    }
+
+    /// <summary>Returns whether one staged file begins with the Dreamcast cooked texture magic.</summary>
+    /// <param name="bytes">Staged file bytes.</param>
+    /// <returns><c>true</c> when the file is a <c>dc-texture-v1</c> payload.</returns>
+    static bool HasCookedTextureMagic(byte[] bytes) {
+        return bytes.Length >= 4
+            && BitConverter.ToUInt32(bytes, 0) == DreamcastTextureSchemaIds.Magic;
+    }
+
+    /// <summary>
+    /// Validates one staged <c>dc-texture-v1</c> payload against the rules the runtime parser enforces, so a
+    /// payload the console would refuse at load fails on the developer's machine instead.
+    /// </summary>
+    /// <param name="bytes">Staged cooked texture bytes, already known to carry the <c>DCTX</c> magic.</param>
+    /// <param name="path">Staged path used in failure messages.</param>
+    static void ValidateCookedTexture(byte[] bytes, string path) {
+        if (bytes.Length < DreamcastTextureSchemaIds.HeaderBytes) {
+            throw new InvalidOperationException(
+                $"Cooked texture '{path}' is {bytes.Length} bytes, shorter than the {DreamcastTextureSchemaIds.HeaderBytes}-byte {DreamcastTextureSchemaIds.FormatId} header.");
+        }
+        ushort version = BitConverter.ToUInt16(bytes, 4);
+        if (version != DreamcastTextureSchemaIds.Version) {
+            throw new InvalidOperationException(
+                $"Cooked texture '{path}' declares {DreamcastTextureSchemaIds.FormatId} version {version}; the runtime loads version {DreamcastTextureSchemaIds.Version} only.");
+        }
+        ushort flags = BitConverter.ToUInt16(bytes, 6);
+        if (flags != 0) {
+            throw new InvalidOperationException($"Cooked texture '{path}' sets reserved flags 0x{flags:X4}; the runtime rejects a nonzero flags field.");
+        }
+        ushort paddedSide = BitConverter.ToUInt16(bytes, 8);
+        if (paddedSide < DreamcastTextureSchemaIds.MinimumSide ||
+            paddedSide > DreamcastTextureSchemaIds.MaximumSide ||
+            (paddedSide & (paddedSide - 1)) != 0) {
+            throw new InvalidOperationException(
+                $"Cooked texture '{path}' has padded side {paddedSide}; it must be a power of two between {DreamcastTextureSchemaIds.MinimumSide} and {DreamcastTextureSchemaIds.MaximumSide}.");
+        }
+        ushort usedWidth = BitConverter.ToUInt16(bytes, 10);
+        ushort usedHeight = BitConverter.ToUInt16(bytes, 12);
+        if (usedWidth < 1 || usedHeight < 1 || usedWidth > paddedSide || usedHeight > paddedSide) {
+            throw new InvalidOperationException(
+                $"Cooked texture '{path}' records a used extent of {usedWidth}x{usedHeight}, which does not fit inside its {paddedSide} padded side.");
+        }
+        // The reserved halfword at offset 14 is deliberately not checked: the version field is the compatibility
+        // mechanism, and enforcing reserved bytes would turn any future use of them into a breaking change.
+        long pixelBytes = (long)paddedSide * paddedSide * 2L;
+        if (bytes.LongLength != DreamcastTextureSchemaIds.HeaderBytes + pixelBytes) {
+            throw new InvalidOperationException(
+                $"Cooked texture '{path}' is {bytes.LongLength} bytes; a {paddedSide} square ARGB4444 payload is {DreamcastTextureSchemaIds.HeaderBytes + pixelBytes}.");
+        }
     }
 
     static void ValidateModel(ModelAsset model, string path) {

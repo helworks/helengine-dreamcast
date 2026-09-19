@@ -142,7 +142,70 @@ public sealed class DreamcastCookedContentValidatorTests {
         Assert.Contains("no model", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>A staged asset of an unsupported type is rejected with its path.</summary>
+    /// <summary>
+    /// A staged Dreamcast cooked texture passes. Textures are the platform's own <c>dc-texture-v1</c> payloads,
+    /// not serialized engine assets, so the validator has to recognize them by their own magic; handing one to
+    /// the engine deserializer would fail every build that cooks a texture.
+    /// </summary>
+    [Fact]
+    public void AcceptsAStagedCookedTexture() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "textures/icon.dctex", CookTexture(12, 9));
+
+        Validate(temporary.Path);
+    }
+
+    /// <summary>A cooked texture the runtime parser would refuse is rejected at build time, with its path and cause.</summary>
+    [Theory]
+    [InlineData(4, (ushort)2, "version")]
+    [InlineData(6, (ushort)1, "flags")]
+    [InlineData(8, (ushort)12, "padded side")]
+    [InlineData(10, (ushort)0, "used extent")]
+    [InlineData(12, (ushort)64, "used extent")]
+    public void RejectsACookedTextureTheRuntimeCouldNotLoad(int fieldOffset, ushort corruptValue, string fragment) {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        byte[] cooked = CookTexture(12, 9);
+        BitConverter.TryWriteBytes(cooked.AsSpan(fieldOffset), corruptValue);
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "textures/icon.dctex", cooked);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("textures/icon.dctex", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(fragment, exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A cooked texture whose payload length disagrees with its declared padded side is rejected.</summary>
+    [Fact]
+    public void RejectsACookedTextureWhoseLengthDisagreesWithItsPaddedSide() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        byte[] cooked = CookTexture(12, 9);
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "textures/icon.dctex", cooked[..^2]);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("textures/icon.dctex", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("ARGB4444 payload is", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A truncated cooked texture that cannot even carry a header is rejected rather than read past its end.</summary>
+    [Fact]
+    public void RejectsACookedTextureShorterThanItsHeader() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "textures/icon.dctex", CookTexture(12, 9)[..8]);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("shorter than", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A staged engine asset of an unsupported type is rejected with its path. The rejection applies to engine
+    /// assets only; a Dreamcast cooked texture is recognized by its own magic before this branch is reached.
+    /// </summary>
     [Fact]
     public void RejectsUnsupportedStagedAssetType() {
         using TemporaryDirectory temporary = new();
@@ -159,6 +222,12 @@ public sealed class DreamcastCookedContentValidatorTests {
 
     static void Validate(string root) {
         new DreamcastCookedContentValidator().Validate(root, DreamcastCookedTestContent.ScenePath);
+    }
+
+    /// <summary>Cooks a real dc-texture-v1 payload through the production cooker, so the tests pin the shipping format.</summary>
+    static byte[] CookTexture(int width, int height) {
+        using TextureAsset texture = DreamcastCookedTestContent.CreateTexture(width, height);
+        return new DreamcastTextureCooker().Cook(texture);
     }
 
     static void Stage(
