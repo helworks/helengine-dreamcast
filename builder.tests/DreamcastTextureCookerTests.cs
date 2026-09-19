@@ -63,17 +63,40 @@ public sealed class DreamcastTextureCookerTests {
         Assert.Equal((ushort)0xFFFF, BitConverter.ToUInt16(cooked, real));
     }
 
-    /// <summary>Confirms a source larger than the PVR limit is rejected by name.</summary>
-    [Fact]
-    public void Cook_RejectsASourceAboveTheHardwareLimit() {
-        helengine.TextureAsset asset = CreateRgba32(1025, 4);
+    /// <summary>
+    /// Confirms a source that would pad above the platform limit is rejected by name,
+    /// both just over the threshold and far above it.
+    /// </summary>
+    /// <remarks>
+    /// 513 is the first width that pads to 1024, which is 2,097,168 cooked bytes and
+    /// cannot be read back through the one MiB content stream cap. Rejecting it here
+    /// is what stops a texture that builds clean and always fails to load.
+    /// </remarks>
+    [Theory]
+    [InlineData(513, 4)]
+    [InlineData(1025, 4)]
+    public void Cook_RejectsASourceAboveThePlatformLimit(int width, int height) {
+        helengine.TextureAsset asset = CreateRgba32(width, height);
         asset.Id = "textures/huge";
 
         InvalidOperationException exception =
             Assert.Throws<InvalidOperationException>(() => new DreamcastTextureCooker().Cook(asset));
 
         Assert.Contains("textures/huge", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("1024", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("512", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Confirms the largest accepted source cooks to a payload that fits the one MiB
+    /// content stream read cap, so the platform limit is not off by one power of two.
+    /// </summary>
+    [Fact]
+    public void Cook_AcceptsTheLargestSourceThatStillFitsTheContentReadCap() {
+        byte[] cooked = new DreamcastTextureCooker().Cook(CreateRgba32(512, 512));
+
+        Assert.Equal((ushort)DreamcastTextureSchemaIds.MaximumSide, BitConverter.ToUInt16(cooked, 8));
+        Assert.Equal(DreamcastTextureSchemaIds.HeaderBytes + (512 * 512 * 2), cooked.Length);
+        Assert.True(cooked.Length <= 1024 * 1024);
     }
 
     /// <summary>Confirms a zero-sized source is rejected rather than producing an empty texture.</summary>

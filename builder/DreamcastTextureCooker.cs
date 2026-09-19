@@ -33,7 +33,7 @@ public sealed class DreamcastTextureCooker {
                             NextPowerOfTwo(Math.Max(asset.Width, asset.Height)));
         if (side > DreamcastTextureSchemaIds.MaximumSide) {
             throw new InvalidOperationException(
-                $"Dreamcast {DreamcastTextureSchemaIds.FormatId} rejects texture '{name}': padded side {side} exceeds the hardware limit of {DreamcastTextureSchemaIds.MaximumSide}.");
+                $"Dreamcast {DreamcastTextureSchemaIds.FormatId} rejects texture '{name}': padded side {side} exceeds the platform limit of {DreamcastTextureSchemaIds.MaximumSide}, above which the cooked payload cannot be read at load.");
         }
 
         ushort[] linear = new ushort[side * side];

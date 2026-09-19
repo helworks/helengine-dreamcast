@@ -7,6 +7,13 @@ namespace {
 
 constexpr std::uint32_t kMagic = 0x58544344u; // "DCTX", little-endian.
 constexpr std::uint16_t kVersion = 1;
+/// Largest padded square side the tile accelerator can sample.
+///
+/// This is hardware truth and is deliberately *not* the same number as the
+/// cooker's DreamcastTextureSchemaIds.MaximumSide, which is a platform limit
+/// derived from DreamcastContentStreamSource's one MiB cooked payload read cap
+/// and is therefore smaller. Do not tidy the two into one constant: if that
+/// read cap is raised the cooker's limit moves and this one does not.
 constexpr std::uint16_t kMaxSide = 1024;
 
 bool isPowerOfTwo(std::uint16_t value) {
