@@ -187,7 +187,7 @@ mirrors the N64 one:
 1. Project side (done once, 2026-09-15): `dc` added to `project.heproj`
    `supportedPlatforms` and `settings/platforms.json`, `settings/platform.dc.json`
    copied from the N64 file, the factory's exclusion set extended with `dc`,
-   the project code rebuilt (`dotnet build user_settings/generated_code/projects/menu.tools/menu.tools.csproj`),
+   the project code rebuilt (`dotnet build cache/generated_code/projects/DemoDiscEditorTools/DemoDiscEditorTools.csproj`),
    the scene regenerated with `helengine.editor.app.dll --project ... --editor-command menu.generate-cube-test-scene`,
    and a `dc` entry added to `user_settings/build_config.json` (cube_test only,
    `release`/`dc-standard`/`default`/`romfs-package`/`dreamcast-elf`, no prebuild).
