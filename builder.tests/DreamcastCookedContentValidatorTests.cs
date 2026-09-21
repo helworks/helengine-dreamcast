@@ -41,7 +41,7 @@ public sealed class DreamcastCookedContentValidatorTests {
     [Fact]
     public void AcceptsProjectCodeComponent() {
         using TemporaryDirectory temporary = new();
-        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("city.rendering.CubeTestSpinComponent, gameplay")])]);
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("DemoDisc.rendering.CubeTestSpinComponent, DemoDisc")])]);
 
         Validate(temporary.Path);
     }
