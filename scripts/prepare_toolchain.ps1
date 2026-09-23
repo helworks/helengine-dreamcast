@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$KosPath = 'C:\dev\helworks\builds\helengine-dc\dependencies\kos',
+    [string]$KosPath,
     [ValidateSet('helengine-dc-sdk:v01')]
     [string]$ImageTag = 'helengine-dc-sdk:v01'
 )
@@ -12,10 +12,13 @@ $expectedKosCommit = 'fcfa7d869471591ca1c777543261a7bfea7cb726'
 $expectedBaseImage = 'pcercuei/dreamcast-toolchain@sha256:504ed29fad5e5565579bf00235fc011fdde656004e50bde4aa24a93b59e2a7bb'
 $expectedCompilerAbi = 'sh-elf little-endian -m4-single'
 $expectedFlycastVersion = '2.7'
-$expectedFlycastPath = 'C:\dev\helworks\builds\helengine-dc\dependencies\flycast-2.7\flycast.exe'
-$expectedFlycastSha256 = 'f41c1a4243274caf9a183114bd610407835521a011a48b18326e5e957e6f4e6b'
 $scriptRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$externalRoot = [IO.Path]::GetFullPath('C:\dev\helworks\builds\helengine-dc')
+$dreamcastRoot = Join-Path $scriptRoot '.dreamcast'
+$expectedFlycastPath = Join-Path $dreamcastRoot 'dependencies\flycast-2.7\flycast.exe'
+$expectedFlycastSha256 = 'f41c1a4243274caf9a183114bd610407835521a011a48b18326e5e957e6f4e6b'
+if ([string]::IsNullOrWhiteSpace($KosPath)) {
+    $KosPath = Join-Path $dreamcastRoot 'dependencies\kos'
+}
 $KosPath = [IO.Path]::GetFullPath($KosPath)
 $lockPath = Join-Path $scriptRoot 'toolchain-lock.txt'
 $dockerfilePath = Join-Path $scriptRoot 'docker\Dockerfile'

@@ -78,8 +78,8 @@ records the evidence rows.
 ## Commands
 
 All paths below assume the isolated layout used for v0.2 acceptance:
-`$dcRoot` is the Dreamcast checkout, `$v02` is
-`C:\dev\helworks\builds\helengine-dc\v02`, and `pwsh` is a PowerShell 7 host
+`$dcRoot` is the Dreamcast checkout, set `$v02` to
+`Join-Path $dcRoot '.dreamcast\v02'`, and use a PowerShell 7 host
 (`pwsh` is not on PATH on the acceptance machine; the executor is given the
 host explicitly).
 

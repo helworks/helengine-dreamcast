@@ -4,7 +4,8 @@ Set-StrictMode -Version Latest
 $buildScript = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\build.ps1'))
 # Reuse the running PowerShell 7 host; pwsh is not guaranteed to be on PATH.
 $powershellPath = (Get-Process -Id $PID).Path
-$testRoot = [IO.Path]::GetFullPath((Join-Path 'C:\dev\helworks\builds\helengine-dc\v02\execution' ("authored-build-input-tests-{0}" -f $PID)))
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$testRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot (Join-Path '.dreamcast\tests' ("authored-build-input-tests-{0}" -f $PID))))
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
 function Invoke-ExpectedFailure {
@@ -13,7 +14,14 @@ function Invoke-ExpectedFailure {
         [string[]]$Arguments,
         [string]$Message
     )
-    $output = @(& $powershellPath -NoProfile -File $buildScript @Arguments 2>&1)
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& $powershellPath -NoProfile -ExecutionPolicy Bypass -File $buildScript @Arguments 2>&1)
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($LASTEXITCODE -eq 0) {
         throw "$Name unexpectedly succeeded."
     }

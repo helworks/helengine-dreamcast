@@ -13,14 +13,17 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$externalRoot = [IO.Path]::GetFullPath('C:\dev\helworks\builds\helengine-dc')
+$dreamcastRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '.dreamcast'))
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = $externalRoot
+    $OutputRoot = $dreamcastRoot
 }
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $repoPrefix = $repoRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-if ($OutputRoot.Equals($repoRoot, [StringComparison]::OrdinalIgnoreCase) -or $OutputRoot.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "OutputRoot must be outside the source worktree: $OutputRoot"
+$dreamcastPrefix = $dreamcastRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$isInRepository = $OutputRoot.Equals($repoRoot, [StringComparison]::OrdinalIgnoreCase) -or $OutputRoot.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)
+$isInDreamcastRoot = $OutputRoot.Equals($dreamcastRoot, [StringComparison]::OrdinalIgnoreCase) -or $OutputRoot.StartsWith($dreamcastPrefix, [StringComparison]::OrdinalIgnoreCase)
+if ($isInRepository -and -not $isInDreamcastRoot) {
+    throw "OutputRoot must be outside the source worktree or inside .dreamcast: $OutputRoot"
 }
 $FlycastPath = [IO.Path]::GetFullPath($FlycastPath)
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $OutputRoot $BuildId))

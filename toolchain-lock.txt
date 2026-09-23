@@ -14,5 +14,5 @@ CompilerFlags=-m4-single -ml
 Endian=sh-elf little-endian
 Architecture=SuperH SH-4
 FlycastVersion=2.7
-FlycastPath=C:\dev\helworks\builds\helengine-dc\dependencies\flycast-2.7\flycast.exe
+FlycastPath=C:\dev\helworks\helengine-dc\.dreamcast\dependencies\flycast-2.7\flycast.exe
 FlycastSha256=f41c1a4243274caf9a183114bd610407835521a011a48b18326e5e957e6f4e6b
