@@ -9,11 +9,11 @@ namespace helengine.dreamcast.builder;
 /// </summary>
 public sealed class DreamcastPlatformCookWorkItemExecutor {
     /// <summary>
-    /// Source asset kinds this executor accepts. Dreamcast declares no separate <c>font-atlas-texture</c>
-    /// capability, so the editor build graph falls the two authored font atlases back onto the ordinary
-    /// <c>"texture"</c> capability; both arrive here under the same source asset kind.
+    /// Source asset kinds this executor accepts. Ordinary textures and font atlases
+    /// share the same decoder, format conversion, and Dreamcast runtime texture payload;
+    /// their capabilities supply different maximum-resolution settings.
     /// </summary>
-    static readonly HashSet<string> SupportedSourceAssetKinds = new(StringComparer.OrdinalIgnoreCase) { "texture" };
+    static readonly HashSet<string> SupportedSourceAssetKinds = new(StringComparer.OrdinalIgnoreCase) { "texture", "font-atlas-texture" };
 
     /// <summary>
     /// Decodes authored source images into raw texture assets.

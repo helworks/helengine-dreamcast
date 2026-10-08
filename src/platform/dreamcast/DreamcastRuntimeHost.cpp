@@ -42,6 +42,7 @@ volatile DreamcastRuntimeProbeSnapshot helengine_dreamcast_runtime_probe;
 volatile DreamcastAuthoredSnapshot helengine_dreamcast_authored_snapshot;
 volatile std::uint32_t helengine_dreamcast_authored_scene_ready;
 volatile std::uint32_t helengine_dreamcast_authored_frame_count;
+alignas(4) volatile char helengine_dreamcast_last_exception[128];
 }
 
 namespace {
@@ -66,6 +67,18 @@ constexpr std::uint32_t kProbeErrorGeneratedException = 2u;
 constexpr std::uint32_t kProbeErrorNativeException = 3u;
 constexpr std::uint32_t kProbeErrorUnknownException = 4u;
 
+void rememberException(const char* message) noexcept {
+    if (message == nullptr) message = "unknown exception";
+    std::size_t index = 0;
+    for (; index + 1 < sizeof(helengine_dreamcast_last_exception) && message[index] != '\0'; ++index) {
+        helengine_dreamcast_last_exception[index] = message[index];
+    }
+    helengine_dreamcast_last_exception[index] = '\0';
+    for (++index; index < sizeof(helengine_dreamcast_last_exception); ++index) {
+        helengine_dreamcast_last_exception[index] = '\0';
+    }
+}
+
 struct DreamcastHeapSnapshot {
     unsigned long heapLimit;
     unsigned long currentBreak;
@@ -77,6 +90,7 @@ struct DreamcastHeapSnapshot {
 };
 
 void resetProbeSnapshot() noexcept {
+    rememberException("");
     volatile DreamcastRuntimeProbeSnapshot& snapshot = helengine_dreamcast_runtime_probe;
     snapshot.magic = kDreamcastRuntimeProbeMagic;
     snapshot.version = kDreamcastRuntimeProbeVersion;
@@ -152,11 +166,13 @@ void publishAuthoredFrame(const AuthoredFrameSummary& summary,
     snapshot.rejectedTriangles = summary.rejectedTriangleCount;
     snapshot.presentedFrames = presentedFrames;
     snapshot.loopFrames = loopFrames;
-    // Packing order: lights in the low 16 bits, sprites in the high 16 bits.
+    // Packing order: lights, sprites, rounded rectangles, glyphs; one byte each.
     // See the kDreamcastAuthoredSnapshotVersion / packedCounts comment in
     // DreamcastRuntimeHost.hpp; the verifier's Lua probe unpacks the same way.
     snapshot.packedCounts = static_cast<std::uint32_t>(summary.directionalLightCount) |
-                             (static_cast<std::uint32_t>(summary.spriteCount) << 16);
+                            (static_cast<std::uint32_t>(summary.spriteCount) << 8) |
+                            (static_cast<std::uint32_t>(summary.roundedRectCount) << 16) |
+                            (static_cast<std::uint32_t>(summary.glyphCount) << 24);
     snapshot.clearArgb = renderer_detail::packColor(summary.clearColor);
     if (snapshot.firstPresentedFrame == 0u && presentedFrames != 0u) {
         snapshot.firstPresentedFrame = loopFrames;
@@ -245,9 +261,9 @@ public:
     explicit RasterFrameSink(DreamcastRasterRenderer& renderer) noexcept : renderer_(renderer) {
     }
 
-    bool present(const GeometryFrame& geometry, const SpriteFrame& sprites,
+    bool present(const GeometryFrame& geometry, const AuthoredOverlayFrame& overlay,
                 const ColorRgba& clearColor) noexcept override {
-        return renderer_.renderFrame(geometry, sprites, clearColor);
+        return renderer_.renderFrame(geometry, overlay, clearColor);
     }
 
 private:
@@ -471,8 +487,9 @@ int runDreamcastAuthoredScene() noexcept {
         const int32_t drawables3D = objectManager->get_Drawables3D()->get_Count();
         const int32_t models = sceneManager->get_ActiveOwnedModelReferenceCount();
         const int32_t materials = sceneManager->get_ActiveOwnedMaterialReferenceCount();
-        if (loadedScenes != 1 || cameras != 1 || drawables3D != 1 || models != 1 || materials != 1) {
-            throw std::runtime_error("Dreamcast startup scene cardinality did not match the v0.2 contract.");
+        if (loadedScenes != 1 || cameras != 1 || drawables3D > 1 ||
+            (drawables3D != 0 && (models != 1 || materials != 1))) {
+            throw std::runtime_error("Dreamcast startup scene requires one camera and at most one 3D drawable.");
         }
         sceneLoaded = true;
         ::ICamera* camera = objectManager->get_Cameras()->get_Item(0);
@@ -514,7 +531,7 @@ int runDreamcastAuthoredScene() noexcept {
             if (!reportedFirstFrame) {
                 const AuthoredFrameSummary& summary = render3D.lastFrameSummary();
                 dbglog(DBG_INFO,
-                       "DreamcastAuthored: first frame cameras=%u drawables=%u triangles=%u clipped=%u rejected=%u clear=%08lx lights=%u sprites=%u\n",
+                       "DreamcastAuthored: first frame cameras=%u drawables=%u triangles=%u clipped=%u rejected=%u clear=%08lx lights=%u sprites=%u roundedRects=%u glyphs=%u\n",
                        static_cast<unsigned>(summary.cameraCount),
                        static_cast<unsigned>(summary.drawableCount),
                        static_cast<unsigned>(summary.triangleCount),
@@ -522,7 +539,9 @@ int runDreamcastAuthoredScene() noexcept {
                        static_cast<unsigned>(summary.rejectedTriangleCount),
                        static_cast<unsigned long>(renderer_detail::packColor(summary.clearColor)),
                        static_cast<unsigned>(summary.directionalLightCount),
-                       static_cast<unsigned>(summary.spriteCount));
+                       static_cast<unsigned>(summary.spriteCount),
+                       static_cast<unsigned>(summary.roundedRectCount),
+                       static_cast<unsigned>(summary.glyphCount));
                 reportedFirstFrame = true;
             }
             if ((authoredFrameCount % 60u) == 0u) {
@@ -539,6 +558,7 @@ int runDreamcastAuthoredScene() noexcept {
 #endif
         }
     } catch (::Exception* exception) {
+        rememberException(exception == nullptr ? "unknown generated exception" : exception->what());
         dbglog(DBG_ERROR, "DreamcastAuthored: generated exception: %s\n",
                exception == nullptr ? "unknown" : exception->what());
         delete exception;
@@ -546,11 +566,13 @@ int runDreamcastAuthoredScene() noexcept {
         setAuthoredError(kAuthoredErrorGeneratedException);
         result = 2;
     } catch (const std::exception& exception) {
+        rememberException(exception.what());
         dbglog(DBG_ERROR, "DreamcastAuthored: native exception: %s\n", exception.what());
         setProbeError(kProbeErrorNativeException);
         setAuthoredError(kAuthoredErrorNativeException);
         result = 2;
     } catch (...) {
+        rememberException("unknown exception");
         dbglog(DBG_ERROR, "DreamcastAuthored: startup failed\n");
         setProbeError(kProbeErrorUnknownException);
         setAuthoredError(kAuthoredErrorUnknownException);

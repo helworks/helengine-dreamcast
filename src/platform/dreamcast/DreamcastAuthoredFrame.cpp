@@ -82,15 +82,26 @@ const char* authoredFrameStatusName(AuthoredFrameStatus status) noexcept {
         return "present-failed";
     case AuthoredFrameStatus::TooManySprites:
         return "too-many-sprites";
+    case AuthoredFrameStatus::TooManyRoundedRects:
+        return "too-many-rounded-rects";
+    case AuthoredFrameStatus::TooManyGlyphs:
+        return "too-many-glyphs";
+    case AuthoredFrameStatus::TooManyOverlaySubmissions:
+        return "too-many-overlay-submissions";
     case AuthoredFrameStatus::InvalidSprite:
         return "invalid-sprite";
+    case AuthoredFrameStatus::InvalidRoundedRect:
+        return "invalid-rounded-rect";
+    case AuthoredFrameStatus::InvalidGlyph:
+        return "invalid-glyph";
     case AuthoredFrameStatus::InvalidViewport:
         return "invalid-viewport";
     }
     return "unknown";
 }
 
-AuthoredFrameAssembler::AuthoredFrameAssembler() : frame_(new GeometryFrame()) {
+AuthoredFrameAssembler::AuthoredFrameAssembler()
+    : frame_(new GeometryFrame()), overlay_(new AuthoredOverlayFrame()) {
     resetGeometryFrame(*frame_);
 }
 
@@ -110,8 +121,24 @@ void AuthoredFrameAssembler::begin(float viewportWidth, float viewportHeight) no
     firstFailure_ = AuthoredFrameStatus::Ok;
     summary_ = AuthoredFrameSummary{};
     lights_ = AuthoredLightState{};
-    sprites_ = SpriteFrame{};
+    overlay_->sprites.spriteCount = 0;
+    overlay_->roundedRectCount = 0;
+    overlay_->glyphCount = 0;
+    overlay_->orderCount = 0;
     resetGeometryFrame(*frame_);
+}
+
+AuthoredFrameStatus AuthoredFrameAssembler::presentEmptyTransition(IAuthoredFrameSink& sink,
+                                                                 const ColorRgba& clearColor) noexcept {
+    if (!began_) return AuthoredFrameStatus::NotStarted;
+    if (!viewportValid_) return AuthoredFrameStatus::InvalidViewport;
+    if (!finiteColor(clearColor)) return AuthoredFrameStatus::InvalidClear;
+    if (firstFailure_ != AuthoredFrameStatus::Ok) return firstFailure_;
+    if (summary_.cameraCount || summary_.drawableCount || overlay_->orderCount)
+        return AuthoredFrameStatus::InvalidCamera;
+    summary_.clearColor=clearColor;
+    began_=false;
+    return sink.present(*frame_,*overlay_,clearColor)?AuthoredFrameStatus::Ok:AuthoredFrameStatus::PresentFailed;
 }
 
 AuthoredFrameStatus AuthoredFrameAssembler::setCamera(const AuthoredCameraState& camera) noexcept {
@@ -139,7 +166,9 @@ AuthoredFrameStatus AuthoredFrameAssembler::setCamera(const AuthoredCameraState&
         !fullViewport(camera.viewport)) {
         return fail(AuthoredFrameStatus::InvalidCamera);
     }
-    if (!camera.clearColorEnabled || !camera.clearDepthEnabled || camera.clearStencilEnabled ||
+    // PVR has no stencil attachment. Clearing the absent attachment is harmless;
+    // Core cameras enable all clear flags by default on every platform.
+    if (!camera.clearColorEnabled ||
         !finiteColor(camera.clearColor)) {
         return fail(AuthoredFrameStatus::InvalidClear);
     }
@@ -233,12 +262,15 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
     if (!began_) {
         return fail(AuthoredFrameStatus::NotStarted);
     }
+    if (overlay_->orderCount >= kMaxOverlaySubmissions) {
+        return fail(AuthoredFrameStatus::TooManyOverlaySubmissions);
+    }
     // The bounds check happens before any write, as in setLights. Unlike
     // setLights, which tracks no count on overflow, this mirrors how
     // setCamera/addDrawable report a cardinality violation: the summary
     // count is pinned at exactly one past the maximum, not incremented again
     // on every further overflowing call.
-    if (sprites_.spriteCount >= kMaxSprites) {
+    if (overlay_->sprites.spriteCount >= kMaxSprites) {
         summary_.spriteCount = kMaxSprites + 1;
         return fail(AuthoredFrameStatus::TooManySprites);
     }
@@ -246,6 +278,7 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
         !finite(sprite.destinationWidth) || !finite(sprite.destinationHeight) ||
         !finite(sprite.sourceU0) || !finite(sprite.sourceV0) || !finite(sprite.sourceU1) ||
         !finite(sprite.sourceV1) || !finiteColor(sprite.tint) ||
+        !finite(sprite.rotationCos) || !finite(sprite.rotationSin) ||
         sprite.destinationWidth <= 0.0f || sprite.destinationHeight <= 0.0f ||
         sprite.texture == nullptr ||
         sprite.sourceU0 < 0.0f || sprite.sourceU0 > 1.0f ||
@@ -278,10 +311,100 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
         destinationBottom < -boundY || destinationBottom > boundY) {
         return fail(AuthoredFrameStatus::InvalidSprite);
     }
-    sprites_.sprites[sprites_.spriteCount] = sprite;
-    ++sprites_.spriteCount;
-    summary_.spriteCount = sprites_.spriteCount;
+    const std::uint8_t index = static_cast<std::uint8_t>(overlay_->sprites.spriteCount);
+    overlay_->sprites.sprites[overlay_->sprites.spriteCount] = sprite;
+    ++overlay_->sprites.spriteCount;
+    overlay_->order[overlay_->orderCount++] = {AuthoredOverlayKind::Sprite, index};
+    summary_.spriteCount = overlay_->sprites.spriteCount;
     return AuthoredFrameStatus::Ok;
+}
+
+AuthoredFrameStatus AuthoredFrameAssembler::addRoundedRect(
+    const AuthoredRoundedRectState& rect) noexcept {
+    const auto fail = [this](AuthoredFrameStatus status) noexcept {
+        if (firstFailure_ == AuthoredFrameStatus::Ok) firstFailure_ = status;
+        return status;
+    };
+    if (!began_) return fail(AuthoredFrameStatus::NotStarted);
+    if (overlay_->orderCount >= kMaxOverlaySubmissions)
+        return fail(AuthoredFrameStatus::TooManyOverlaySubmissions);
+    if (overlay_->roundedRectCount >= kMaxRoundedRects) {
+        summary_.roundedRectCount = kMaxRoundedRects + 1;
+        return fail(AuthoredFrameStatus::TooManyRoundedRects);
+    }
+    if (!finite(rect.destinationX) || !finite(rect.destinationY) ||
+        !finite(rect.destinationWidth) || !finite(rect.destinationHeight) ||
+        !finite(rect.radius) || !finite(rect.borderThickness) ||
+        !finiteColor(rect.fillColor) || !finiteColor(rect.borderColor) ||
+        rect.destinationWidth <= 0.0f || rect.destinationHeight <= 0.0f ||
+        rect.radius < 0.0f || rect.borderThickness < 0.0f ||
+        (rect.roundedCorners & ~kRoundedRectAllCorners) != 0) {
+        return fail(AuthoredFrameStatus::InvalidRoundedRect);
+    }
+    if (!viewportValid_) return fail(AuthoredFrameStatus::InvalidViewport);
+    const float boundX = kSpriteDestinationBoundsMultiple * viewportWidth_;
+    const float boundY = kSpriteDestinationBoundsMultiple * viewportHeight_;
+    const float right = rect.destinationX + rect.destinationWidth;
+    const float bottom = rect.destinationY + rect.destinationHeight;
+    if (!finite(right) || !finite(bottom) || rect.destinationX < -boundX ||
+        rect.destinationX > boundX || rect.destinationY < -boundY ||
+        rect.destinationY > boundY || right < -boundX || right > boundX ||
+        bottom < -boundY || bottom > boundY) {
+        return fail(AuthoredFrameStatus::InvalidRoundedRect);
+    }
+    const std::uint8_t index = static_cast<std::uint8_t>(overlay_->roundedRectCount);
+    overlay_->roundedRects[overlay_->roundedRectCount++] = rect;
+    overlay_->order[overlay_->orderCount++] = {AuthoredOverlayKind::RoundedRect, index};
+    summary_.roundedRectCount = overlay_->roundedRectCount;
+    return AuthoredFrameStatus::Ok;
+}
+
+AuthoredFrameStatus AuthoredFrameAssembler::addGlyph(const AuthoredGlyphState& glyph) noexcept {
+    const auto fail = [this](AuthoredFrameStatus status) noexcept {
+        if (firstFailure_ == AuthoredFrameStatus::Ok) firstFailure_ = status;
+        return status;
+    };
+    if (!began_) return fail(AuthoredFrameStatus::NotStarted);
+    if (overlay_->orderCount >= kMaxOverlaySubmissions)
+        return fail(AuthoredFrameStatus::TooManyOverlaySubmissions);
+    if (overlay_->glyphCount >= kMaxGlyphs) {
+        summary_.glyphCount = kMaxGlyphs + 1;
+        return fail(AuthoredFrameStatus::TooManyGlyphs);
+    }
+    if (!finite(glyph.destinationX) || !finite(glyph.destinationY) ||
+        !finite(glyph.destinationWidth) || !finite(glyph.destinationHeight) ||
+        !finite(glyph.sourceU0) || !finite(glyph.sourceV0) ||
+        !finite(glyph.sourceU1) || !finite(glyph.sourceV1) ||
+        !finiteColor(glyph.tint) || glyph.destinationWidth <= 0.0f ||
+        glyph.destinationHeight <= 0.0f || glyph.texture == nullptr ||
+        glyph.sourceU0 < 0.0f || glyph.sourceU0 > 1.0f ||
+        glyph.sourceV0 < 0.0f || glyph.sourceV0 > 1.0f ||
+        glyph.sourceU1 < 0.0f || glyph.sourceU1 > 1.0f ||
+        glyph.sourceV1 < 0.0f || glyph.sourceV1 > 1.0f ||
+        glyph.sourceU1 <= glyph.sourceU0 || glyph.sourceV1 <= glyph.sourceV0) {
+        return fail(AuthoredFrameStatus::InvalidGlyph);
+    }
+    if (!viewportValid_) return fail(AuthoredFrameStatus::InvalidViewport);
+    const float boundX = kSpriteDestinationBoundsMultiple * viewportWidth_;
+    const float boundY = kSpriteDestinationBoundsMultiple * viewportHeight_;
+    const float right = glyph.destinationX + glyph.destinationWidth;
+    const float bottom = glyph.destinationY + glyph.destinationHeight;
+    if (!finite(right) || !finite(bottom) || glyph.destinationX < -boundX ||
+        glyph.destinationX > boundX || glyph.destinationY < -boundY ||
+        glyph.destinationY > boundY || right < -boundX || right > boundX ||
+        bottom < -boundY || bottom > boundY) {
+        return fail(AuthoredFrameStatus::InvalidGlyph);
+    }
+    const std::uint16_t index = overlay_->glyphCount;
+    overlay_->glyphs[overlay_->glyphCount++] = glyph;
+    overlay_->order[overlay_->orderCount++] = {AuthoredOverlayKind::Glyph, index};
+    summary_.glyphCount = overlay_->glyphCount;
+    return AuthoredFrameStatus::Ok;
+}
+
+void AuthoredFrameAssembler::latchFailure(AuthoredFrameStatus status) noexcept {
+    if (status != AuthoredFrameStatus::Ok && firstFailure_ == AuthoredFrameStatus::Ok)
+        firstFailure_ = status;
 }
 
 AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) noexcept {
@@ -295,9 +418,15 @@ AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) no
     if (summary_.cameraCount == 0 || !cameraValid_) {
         return AuthoredFrameStatus::NoCamera;
     }
+    if (summary_.drawableCount == 0 && overlay_->orderCount > 0) {
+        if (!viewportValid_) return AuthoredFrameStatus::InvalidViewport;
+        return sink.present(*frame_, *overlay_, camera_.clearColor)
+                   ? AuthoredFrameStatus::Ok : AuthoredFrameStatus::PresentFailed;
+    }
     if (summary_.drawableCount == 0 || !drawableValid_) {
         return AuthoredFrameStatus::NoDrawable;
     }
+    if (!camera_.clearDepthEnabled) return AuthoredFrameStatus::InvalidClear;
     // Guard the geometry projection below the same way addSprite() guards
     // its destination bound: viewportWidth_/viewportHeight_ feed the focal
     // length and clip math in GeometryConfig/processGeometry, and nothing
@@ -367,7 +496,7 @@ AuthoredFrameStatus AuthoredFrameAssembler::present(IAuthoredFrameSink& sink) no
     summary_.triangleCount = frame_->triangleCount;
     summary_.clippedTriangleCount = frame_->clippedTriangleCount;
     summary_.rejectedTriangleCount = frame_->rejectedTriangleCount;
-    if (!sink.present(*frame_, sprites_, camera_.clearColor)) {
+    if (!sink.present(*frame_, *overlay_, camera_.clearColor)) {
         return AuthoredFrameStatus::PresentFailed;
     }
     return AuthoredFrameStatus::Ok;
@@ -382,7 +511,11 @@ const GeometryFrame& AuthoredFrameAssembler::geometry() const noexcept {
 }
 
 const SpriteFrame& AuthoredFrameAssembler::sprites() const noexcept {
-    return sprites_;
+    return overlay_->sprites;
+}
+
+const AuthoredOverlayFrame& AuthoredFrameAssembler::overlay() const noexcept {
+    return *overlay_;
 }
 
 } // namespace helengine::dreamcast

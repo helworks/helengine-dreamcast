@@ -23,12 +23,69 @@ struct AuthoredSpriteState {
     float sourceV1;
     const void* texture;     // opaque handle; the raster stage knows its real type
     ColorRgba tint;
+    float rotationCos = 1.0f;
+    float rotationSin = 0.0f;
 };
 
 /// Sprite overlay submitted for one frame, in submission order.
 struct SpriteFrame {
     AuthoredSpriteState sprites[kMaxSprites];
     std::uint16_t spriteCount;
+};
+
+/// Fixed limits for the ordered translucent overlay. The count lane remains
+/// representable by the authored runtime snapshot (glyph capacity is 255).
+constexpr std::uint16_t kMaxRoundedRects = 64;
+constexpr std::uint16_t kMaxGlyphs = 512;
+constexpr std::uint16_t kMaxOverlaySubmissions =
+    kMaxSprites + kMaxRoundedRects + kMaxGlyphs;
+
+constexpr std::uint8_t kRoundedRectTopLeft = 1u << 0;
+constexpr std::uint8_t kRoundedRectTopRight = 1u << 1;
+constexpr std::uint8_t kRoundedRectBottomLeft = 1u << 2;
+constexpr std::uint8_t kRoundedRectBottomRight = 1u << 3;
+constexpr std::uint8_t kRoundedRectAllCorners = 0x0fu;
+
+struct AuthoredRoundedRectState {
+    float destinationX;
+    float destinationY;
+    float destinationWidth;
+    float destinationHeight;
+    float radius;
+    float borderThickness;
+    std::uint8_t roundedCorners;
+    ColorRgba fillColor;
+    ColorRgba borderColor;
+};
+
+struct AuthoredGlyphState {
+    float destinationX;
+    float destinationY;
+    float destinationWidth;
+    float destinationHeight;
+    float sourceU0;
+    float sourceV0;
+    float sourceU1;
+    float sourceV1;
+    const void* texture;
+    ColorRgba tint;
+};
+
+enum class AuthoredOverlayKind : std::uint8_t { Sprite, RoundedRect, Glyph };
+
+struct AuthoredOverlayOrder {
+    AuthoredOverlayKind kind;
+    std::uint16_t index;
+};
+
+struct AuthoredOverlayFrame {
+    SpriteFrame sprites{};
+    AuthoredRoundedRectState roundedRects[kMaxRoundedRects]{};
+    AuthoredGlyphState glyphs[kMaxGlyphs]{};
+    AuthoredOverlayOrder order[kMaxOverlaySubmissions]{};
+    std::uint16_t roundedRectCount = 0;
+    std::uint16_t glyphCount = 0;
+    std::uint16_t orderCount = 0;
 };
 
 /// A source sub-rectangle in the form the engine authors it: origin and

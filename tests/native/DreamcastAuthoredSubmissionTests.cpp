@@ -9,6 +9,9 @@
 
 namespace {
 
+static_assert(sizeof(helengine::dreamcast::AuthoredFrameAssembler) <= 4096,
+              "authored frame assembler must keep large overlay buffers off the KOS stack");
+
 using namespace helengine::dreamcast;
 
 int failures = 0;
@@ -29,11 +32,11 @@ bool near(float left, float right, float epsilon = 1.0e-3f) {
 /// Records every presentation so tests can prove the exactly-once contract.
 class RecordingSink final : public IAuthoredFrameSink {
 public:
-    bool present(const GeometryFrame& geometry, const SpriteFrame& sprites,
+    bool present(const GeometryFrame& geometry, const AuthoredOverlayFrame& overlay,
                 const ColorRgba& clearColor) noexcept override {
         ++presentCount;
         lastTriangleCount = geometry.triangleCount;
-        lastSpriteCount = sprites.spriteCount;
+        lastSpriteCount = overlay.sprites.spriteCount;
         lastClear = clearColor;
         if (geometry.triangleCount != 0) {
             lastFirstColor = geometry.triangles[0].vertices[0].color;
@@ -334,7 +337,11 @@ void InvalidCameraMaterialAndTransformsFailBeforePackets() {
         assembler.begin(640.0f, 480.0f);
         AuthoredCameraState camera = validCamera();
         camera.clearStencilEnabled = true;
-        EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::InvalidClear);
+        EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::Ok);
+        EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+        RecordingSink stencilSink;
+        EXPECT(assembler.present(stencilSink) == AuthoredFrameStatus::Ok);
+        EXPECT(stencilSink.presentCount == 1);
         camera = validCamera();
         camera.clearColorEnabled = false;
         AuthoredFrameAssembler second;
@@ -627,6 +634,28 @@ void LitShadingSurvivesNonuniformScale() {
 } // namespace
 
 int main() {
+    // Unload -> camera-free transition -> next scene still presents a complete
+    // empty frame, while ordinary camera-free scenes remain an error.
+    {
+        AuthoredFrameAssembler assembler;
+        RecordingSink sink;
+        for(int cycle=0;cycle<3;++cycle) {
+            assembler.begin(640,480);
+            EXPECT(assembler.setCamera(validCamera())==AuthoredFrameStatus::Ok);
+            EXPECT(assembler.addDrawable(validDrawable())==AuthoredFrameStatus::Ok);
+            EXPECT(assembler.present(sink)==AuthoredFrameStatus::Ok);
+            assembler.begin(640,480);
+            EXPECT(assembler.presentEmptyTransition(sink,{0.1f,0.2f,0.3f,1})==AuthoredFrameStatus::Ok);
+            EXPECT(sink.lastTriangleCount==0 && sink.lastSpriteCount==0);
+            EXPECT(assembler.summary().cameraCount==0 && assembler.summary().glyphCount==0);
+            EXPECT(assembler.presentEmptyTransition(sink,{0,0,0,1})==AuthoredFrameStatus::NotStarted);
+            assembler.begin(640,480);
+            EXPECT(assembler.present(sink)==AuthoredFrameStatus::NoCamera);
+        }
+        EXPECT(sink.presentCount==6);
+        assembler.begin(640,480);sink.accept=false;
+        EXPECT(assembler.presentEmptyTransition(sink,{0,0,0,1})==AuthoredFrameStatus::PresentFailed);
+    }
     OneCameraOneDrawableDeliversAuthoredStateExactlyOnce();
     ProjectionUsesFortyFiveDegreeVerticalFovAndPositiveDepth();
     CameraTranslationMovesProjectionOpposite();

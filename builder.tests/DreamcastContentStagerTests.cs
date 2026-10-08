@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using helengine;
 using helengine.baseplatform.Manifest;
 using helengine.dreamcast.builder;
 
@@ -7,6 +8,30 @@ namespace helengine.dreamcast.builder.tests;
 
 /// <summary>Verifies manifest-owned Dreamcast package staging and validation.</summary>
 public sealed class DreamcastContentStagerTests {
+    const string FontPath = "cooked/fonts/test.hefont";
+    const string FontAtlasPath = "cooked/fonts/test.dctex";
+
+    /// <summary>Preserves declared animation bytes required by authored AnimationPlayer components.</summary>
+    [Fact]
+    public void StageCopiesDeclaredAnimationClipVerbatim() {
+        using TemporaryDirectory temporary = new();
+        string sourceRoot = Path.Combine(temporary.Path, "package-source");
+        string destinationRoot = Path.Combine(temporary.Path, "stage");
+        PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(sourceRoot);
+        const string animationPath = "cooked/animations/logo.hanim";
+        byte[] animationBytes = helengine.files.AssetSerializer.SerializeToBytes(new AnimationClipAsset { Duration = 2f });
+        DreamcastCookedTestContent.WriteFile(sourceRoot, animationPath, animationBytes);
+        PlatformBuildArtifact animation = new(animationPath, "animation/logo", DreamcastCookedTestContent.Hash(animationBytes), "animation", "baseline");
+        DreamcastContentStager stager = new();
+
+        IReadOnlyList<string> paths = stager.Stage(CreateManifest(artifacts[0], [.. artifacts[1..], animation]),
+            sourceRoot, destinationRoot, [], CancellationToken.None);
+
+        Assert.Contains(animationPath, paths);
+        Assert.Empty(stager.LastSkippedRelativePaths);
+        Assert.Equal(animationBytes, File.ReadAllBytes(Path.Combine(destinationRoot, animationPath.Replace('/', Path.DirectorySeparatorChar))));
+    }
+
     /// <summary>Copies only declared artifacts and gives every output a stable timestamp.</summary>
     [Fact]
     public void StageCopiesDeclaredArtifactsInStableForm() {
@@ -102,6 +127,29 @@ public sealed class DreamcastContentStagerTests {
         Assert.Equal(cookedTextureBytes, File.ReadAllBytes(staged));
     }
 
+    /// <summary>Packages serialized FontAsset metadata alongside its builder-cooked atlas.</summary>
+    [Fact]
+    public void Stage_CopiesFontAssetsAndEmbedsTheirCookedAtlas() {
+        using TemporaryDirectory temporary = new();
+        string sourceRoot = Path.Combine(temporary.Path, "package-source");
+        string destinationRoot = Path.Combine(temporary.Path, "stage");
+        PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(sourceRoot);
+        byte[] fontBytes = CreateFontBytes(FontAtlasPath);
+        DreamcastCookedTestContent.WriteFile(sourceRoot, FontPath, fontBytes);
+        byte[] atlasBytes = CreateCookedTextureBytes();
+        DreamcastCookedTestContent.WriteFile(sourceRoot, FontAtlasPath, atlasBytes);
+        PlatformBuildArtifact fontArtifact = new(FontPath, "font/test", DreamcastCookedTestContent.Hash(fontBytes), "font", "baseline");
+        PlatformBuildManifest manifest = CreateManifest(artifacts[0], [.. artifacts[1..], fontArtifact]);
+
+        IReadOnlyList<string> paths = new DreamcastContentStager().Stage(
+            manifest, sourceRoot, destinationRoot, [FontAtlasPath], CancellationToken.None);
+
+        Assert.Contains(FontPath, paths);
+        Assert.Contains(FontAtlasPath, paths);
+        Assert.Equal(fontBytes, File.ReadAllBytes(Path.Combine(destinationRoot, FontPath.Replace('/', Path.DirectorySeparatorChar))));
+        Assert.Equal(atlasBytes, File.ReadAllBytes(Path.Combine(destinationRoot, FontAtlasPath.Replace('/', Path.DirectorySeparatorChar))));
+    }
+
     /// <summary>Rejects a declaration that cannot be associated with one exact cooked file.</summary>
     [Fact]
     public void StageRejectsMissingDeclaredArtifactWithoutLoneFileFallback() {
@@ -159,6 +207,29 @@ public sealed class DreamcastContentStagerTests {
             new PlatformContainerWritePlan("dc-romfs-package", []),
             [],
             runtimeFeatures ?? PlatformBuildRuntimeFeatureManifest.Empty);
+    }
+
+    static byte[] CreateFontBytes(string atlasPath) {
+        using FontAsset font = new(new FontInfo("fixture", 12, 4f), null,
+            new Dictionary<char, FontChar> {
+                ['A'] = new(new float4(0f, 0f, 0.5f, 0.5f), 6f, 8f, 0f, 0f)
+            }, 12f, 8, 8) {
+            CookedAtlasTextureRelativePath = atlasPath
+        };
+        using MemoryStream stream = new();
+        helengine.files.FontAssetBinarySerializer.Serialize(stream, font);
+        return stream.ToArray();
+    }
+
+    static byte[] CreateCookedTextureBytes() {
+        const ushort side = 8;
+        byte[] bytes = new byte[DreamcastTextureSchemaIds.HeaderBytes + side * side * 2];
+        BitConverter.TryWriteBytes(bytes.AsSpan(0, 4), DreamcastTextureSchemaIds.Magic);
+        BitConverter.TryWriteBytes(bytes.AsSpan(4, 2), DreamcastTextureSchemaIds.Version);
+        BitConverter.TryWriteBytes(bytes.AsSpan(8, 2), side);
+        BitConverter.TryWriteBytes(bytes.AsSpan(10, 2), side);
+        BitConverter.TryWriteBytes(bytes.AsSpan(12, 2), side);
+        return bytes;
     }
 
     sealed class TemporaryDirectory : IDisposable {

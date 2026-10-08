@@ -75,9 +75,13 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         List<PlatformBuildDiagnostic> diagnostics = [];
-        string invocationRoot = Path.Combine(request.WorkingRoot, $"dreamcast-build-{Guid.NewGuid():N}");
+        string invocationRoot = Path.Combine(request.WorkingRoot,
+            string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HELENGINE_DC_BUILD_RUN_ROOT"))
+                ? $"dreamcast-build-{Guid.NewGuid():N}" : "dreamcast-build");
         string contentRoot = Path.Combine(invocationRoot, "content");
-        string catalogRoot = Path.Combine(invocationRoot, "catalog");
+        string catalogRoot = string.IsNullOrWhiteSpace(request.NativeObjectCacheRoot)
+            ? Path.Combine(invocationRoot, "catalog")
+            : Path.Combine(Path.GetFullPath(request.NativeObjectCacheRoot), "dreamcast-catalog");
         try {
             cancellationToken.ThrowIfCancellationRequested();
             if (!string.Equals(request.Manifest.PlatformName, "dc", StringComparison.OrdinalIgnoreCase)) {
@@ -105,6 +109,10 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
             }
 
             ContentStager.Stage(request.Manifest, packageSourceRoot, contentRoot, builderCookedRelativePaths, cancellationToken);
+            // Verify manifest hashes against the editor's original bytes first. Only the
+            // declared, staged font copies are transformed for their cooked atlas; package
+            // inputs retain their hashes and remain reusable by later builds.
+            DreamcastFontAtlasMetricsScaler.RescalePackagedFonts(contentRoot, cookWorkItems);
             DreamcastStartupCatalogEntry startupEntry = catalogEntries.Single(entry => string.Equals(entry.SceneId, request.Manifest.StartupSceneId, StringComparison.Ordinal));
             CookedContentValidator.Validate(contentRoot, startupEntry.CookedRelativePath);
             StartupCatalogWriter.Write(catalogRoot, request.Manifest.StartupSceneId, catalogEntries);

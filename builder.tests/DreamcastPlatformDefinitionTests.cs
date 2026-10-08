@@ -44,17 +44,21 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.DoesNotContain(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.lightcomponent");
     }
 
-    /// <summary>Confirms sprites are transformed through while text and rounded rectangles are rejected.</summary>
+    /// <summary>Confirms the authored 2D drawable types are transformed through for the Dreamcast runtime.</summary>
     [Fact]
-    public void DefinitionSupportsSpritesAndRejectsTextAndRoundedRects() {
+    public void DefinitionSupportsSpritesTextAndRoundedRects() {
         DreamcastPlatformAssetBuilder builder = new();
 
+        PlatformComponentSupportRule viewport = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.ViewportComponent");
         PlatformComponentSupportRule sprite = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.SpriteComponent");
         PlatformComponentSupportRule text = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.TextComponent");
         PlatformComponentSupportRule rounded = Assert.Single(builder.Definition.ComponentSupportRules, rule => rule.ComponentTypeId == "helengine.RoundedRectComponent");
+        Assert.Equal(PlatformComponentSupportKind.Transform, viewport.SupportKind);
         Assert.Equal(PlatformComponentSupportKind.Transform, sprite.SupportKind);
-        Assert.Equal(PlatformComponentSupportKind.Unsupported, text.SupportKind);
-        Assert.Equal(PlatformComponentSupportKind.Unsupported, rounded.SupportKind);
+        Assert.Equal(PlatformComponentSupportKind.Transform, text.SupportKind);
+        Assert.Contains("atlas", text.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(PlatformComponentSupportKind.Transform, rounded.SupportKind);
+        Assert.Contains("rounded", rounded.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Confirms the codegen profile publishes the fixed native ABI choices.</summary>
@@ -73,16 +77,18 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.DoesNotContain(codegen.Settings, setting => setting.SettingId == "native-file-stream-descriptor-apis");
     }
 
-    /// <summary>Confirms the definition declares only the "texture" cook capability, capped to 64 pixels, and no font-atlas capability.</summary>
+    /// <summary>Confirms regular textures retain their 64-pixel cap while font atlases preserve authored 512-pixel metrics.</summary>
     [Fact]
-    public void DefinitionDeclaresOnlyTheTextureCookCapability() {
+    public void DefinitionDeclaresSeparateTextureAndFontAtlasCookCapabilities() {
         DreamcastPlatformAssetBuilder builder = new();
 
-        PlatformAssetCookCapabilityDefinition capability = Assert.Single(builder.Definition.AssetCookCapabilities);
-        Assert.Equal("texture", capability.SourceAssetKind);
+        Assert.Equal(2, builder.Definition.AssetCookCapabilities.Count());
+        PlatformAssetCookCapabilityDefinition capability = Assert.Single(builder.Definition.AssetCookCapabilities, c => c.SourceAssetKind == "texture");
+        PlatformAssetCookCapabilityDefinition fontCapability = Assert.Single(builder.Definition.AssetCookCapabilities, c => c.SourceAssetKind == "font-atlas-texture");
         Assert.Equal("runtime-texture", capability.TargetArtifactKind);
         Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
-        Assert.DoesNotContain(builder.Definition.AssetCookCapabilities, c => c.SourceAssetKind == "font-atlas-texture");
+        Assert.Equal("runtime-texture", fontCapability.TargetArtifactKind);
+        Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, fontCapability.OwnershipKind);
 
         TextureAssetProcessorSettings settings = DreamcastTextureCookSettingsSerializer.Deserialize(capability.DefaultSerializedPlatformSettings);
         Assert.Equal(64, settings.MaxResolution);
@@ -93,6 +99,13 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Equal(new[] { TextureAssetColorFormat.Rgba32.ToString() }, capability.TextureFormatCapabilities.SupportedColorFormatIds);
         Assert.Contains(TextureAssetAlphaPrecision.Opaque, capability.TextureFormatCapabilities.SupportedAlphaPrecisions);
         Assert.Contains(TextureAssetAlphaPrecision.A8, capability.TextureFormatCapabilities.SupportedAlphaPrecisions);
+
+        TextureAssetProcessorSettings fontSettings = DreamcastTextureCookSettingsSerializer.Deserialize(fontCapability.DefaultSerializedPlatformSettings);
+        Assert.Equal(512, fontSettings.MaxResolution);
+        Assert.Equal(TextureAssetColorFormat.Rgba32, fontSettings.ColorFormat);
+        Assert.Equal(TextureAssetAlphaPrecision.A8, fontSettings.AlphaPrecision);
+        Assert.Equal(capability.TextureFormatCapabilities.SupportedColorFormatIds, fontCapability.TextureFormatCapabilities.SupportedColorFormatIds);
+        Assert.Equal(capability.TextureFormatCapabilities.SupportedAlphaPrecisions, fontCapability.TextureFormatCapabilities.SupportedAlphaPrecisions);
     }
 
     /// <summary>Confirms the initial native executor validates its required build request.</summary>

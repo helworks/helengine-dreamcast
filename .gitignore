@@ -12,3 +12,11 @@ tests/native/*.out
 # under .dreamcast; a bare `dotnet build`/`dotnet test` still drops these here.
 bin/
 obj/
+
+# Emulator logs, local tooling caches, and accidental shell outputs.
+*.log
+/.claude/
+/.local/
+/.superpowers/
+/Draw
+/Update

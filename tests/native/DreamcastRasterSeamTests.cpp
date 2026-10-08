@@ -1,4 +1,5 @@
 #include "platform/dreamcast/DreamcastRasterRenderer.hpp"
+#include "platform/dreamcast/DreamcastOverlayValidation.hpp"
 
 #include "platform/dreamcast/DreamcastCubeMesh.hpp"
 #include "platform/dreamcast/DreamcastBootHost.hpp"
@@ -140,6 +141,53 @@ void ScreenTriangleDiagnosticUsesFrontFacingWinding() {
     EXPECT(frame.triangles[0].vertices[2].color.g == 1.0f);
 }
 
+void MixedOverlayValidationAcceptsAndPreservesThreeKinds() {
+    using namespace helengine::dreamcast;
+    SpriteTexture texture{reinterpret_cast<void*>(1), 8, 4, 4};
+    AuthoredOverlayFrame overlay{};
+    overlay.sprites.spriteCount = 1;
+    overlay.sprites.sprites[0] = {0, 0, 8, 8, 0, 0, 0.5f, 0.5f, &texture, {1, 1, 1, 1}};
+    overlay.roundedRects[0] = {1, 2, 30, 20, 5, 2, kRoundedRectAllCorners,
+                               {1, 0, 0, 0.8f}, {0, 0, 0, 1}};
+    overlay.roundedRectCount = 1;
+    overlay.glyphs[0] = {2, 3, 8, 10, 0, 0, 0.5f, 0.5f, &texture, {1, 1, 1, 1}};
+    overlay.glyphCount = 1;
+    overlay.order[0] = {AuthoredOverlayKind::Sprite, 0};
+    overlay.order[1] = {AuthoredOverlayKind::RoundedRect, 0};
+    overlay.order[2] = {AuthoredOverlayKind::Glyph, 0};
+    overlay.orderCount = 3;
+    EXPECT(renderer_detail::validOverlayFrame(overlay));
+    EXPECT(overlay.order[0].kind == AuthoredOverlayKind::Sprite);
+    EXPECT(overlay.order[1].kind == AuthoredOverlayKind::RoundedRect);
+    EXPECT(overlay.order[2].kind == AuthoredOverlayKind::Glyph);
+}
+
+void MalformedOverlayReferencesFailValidation() {
+    using namespace helengine::dreamcast;
+    SpriteTexture texture{reinterpret_cast<void*>(1), 8, 4, 4};
+    AuthoredOverlayFrame overlay{};
+    overlay.roundedRects[0] = {0, 0, 10, 10, 2, 0, 0, {1, 1, 1, 1}, {0, 0, 0, 1}};
+    overlay.roundedRectCount = 1;
+    overlay.order[0] = {AuthoredOverlayKind::RoundedRect, 0};
+    overlay.orderCount = 1;
+    EXPECT(renderer_detail::validOverlayFrame(overlay));
+    overlay.roundedRects[0].destinationWidth = 0;
+    EXPECT(!renderer_detail::validOverlayFrame(overlay));
+
+    overlay = AuthoredOverlayFrame{};
+    overlay.glyphs[0] = {0, 0, 8, 10, 0, 0, 1.1f, 0.5f, &texture, {1, 1, 1, 1}};
+    overlay.glyphCount = 1;
+    overlay.order[0] = {AuthoredOverlayKind::Glyph, 0};
+    overlay.orderCount = 1;
+    EXPECT(!renderer_detail::validOverlayFrame(overlay));
+    overlay.glyphs[0].sourceU1 = 0.5f;
+    overlay.glyphs[0].texture = nullptr;
+    EXPECT(!renderer_detail::validOverlayFrame(overlay));
+    overlay.glyphs[0].texture = &texture;
+    overlay.order[0].index = 1;
+    EXPECT(!renderer_detail::validOverlayFrame(overlay));
+}
+
 } // namespace
 
 int main() {
@@ -150,6 +198,8 @@ int main() {
     SimulationDeltaIsClampedToAvoidDebuggerJumps();
     DiagnosticSnapshotLayoutIsStableForEmulatorReads();
     ScreenTriangleDiagnosticUsesFrontFacingWinding();
+    MixedOverlayValidationAcceptsAndPreservesThreeKinds();
+    MalformedOverlayReferencesFailValidation();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " assertion(s) failed\n";

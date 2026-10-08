@@ -3,8 +3,12 @@
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
 #include "DreamcastAuthoredFrame.hpp"
+#include "DreamcastTextLayout.hpp"
 
 #include "RenderManager2D.hpp"
+
+#include <memory>
+#include <vector>
 
 namespace helengine::dreamcast {
 
@@ -64,6 +68,8 @@ protected:
 
 private:
     AuthoredFrameAssembler* assembler_ = nullptr;
+    std::vector<AuthoredFontGlyph> fontGlyphScratch_;
+    std::unique_ptr<GlyphLayoutFrame> glyphLayoutScratch_;
 };
 
 } // namespace helengine::dreamcast

@@ -3,15 +3,23 @@
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
 #include "DreamcastRuntimeTexture.hpp"
+#include "DreamcastGlyphClip.hpp"
 
 #include "Core.hpp"
+#include "Component.hpp"
 #include "Entity.hpp"
+#include "FontAsset.hpp"
+#include "FontChar.hpp"
+#include "FontInfo.hpp"
 #include "ICamera.hpp"
 #include "IContentStreamSource.hpp"
 #include "IDrawable2D.hpp"
 #include "IRenderQueue2D.hpp"
 #include "IRenderVisitor2D.hpp"
+#include "IRoundedRectDrawable2D.hpp"
 #include "ISpriteDrawable2D.hpp"
+#include "ITextDrawable2D.hpp"
+#include "IClipRegion2D.hpp"
 #include "ObjectManager.hpp"
 #include "byte4.hpp"
 #include "float3.hpp"
@@ -22,6 +30,7 @@
 #include "system/io/stream.hpp"
 
 #include <cmath>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -29,6 +38,12 @@
 #include <vector>
 
 namespace helengine::dreamcast {
+extern "C" {
+/// Numeric guest-RAM probe for large authored sprites: draw sequence, world
+/// origin X/Y, extent X/Y, quaternion Z/W and submitted rotation cosine/sine.
+/// This contains no framebuffer data and allows animation to be checked without capturing a window.
+volatile float helengine_dc_backdrop_probe[9] = {};
+}
 namespace {
 
 /// Largest cooked texture file this platform will read into memory before
@@ -103,16 +118,22 @@ float unitFromByte(std::uint8_t channel) noexcept {
 /// "slightly rotated" art.
 constexpr float kIdentityOrientationEpsilon = 1.0e-4f;
 
-/// True when a world orientation represents no rotation at all.
-///
-/// A quaternion and its negation are the same rotation, so the scalar part is
-/// compared by magnitude. Written as positive comparisons so a NaN component
-/// falls through to false and the sprite is rejected rather than admitted.
-bool isUnrotated(const ::float4& orientation) noexcept {
-    return std::fabs(orientation.X) <= kIdentityOrientationEpsilon &&
-           std::fabs(orientation.Y) <= kIdentityOrientationEpsilon &&
-           std::fabs(orientation.Z) <= kIdentityOrientationEpsilon &&
-           std::fabs(std::fabs(orientation.W) - 1.0f) <= kIdentityOrientationEpsilon;
+/// Captures the current clip intersection once for all glyphs and effect passes
+/// of one text drawable. Rectangles are read again on the next text draw so
+/// scrolling, ancestor movement and resized clipping remain live.
+DreamcastGlyphClip resolveGlyphClip(::Entity* owner) {
+    DreamcastGlyphClip result;
+    for (::Entity* current = owner; current != nullptr; current = current->get_Parent()) {
+        auto* components = current->get_Components();
+        if (components == nullptr) continue;
+        for (int32_t i = 0; i < components->get_Count(); ++i) {
+            auto* clip = dynamic_cast<::IClipRegion2D*>(components->get_Item(i));
+            if (clip == nullptr) continue;
+            const ::float4 rect = clip->GetClipRect();
+            result.include(rect.X, rect.Y, rect.Z, rect.W);
+        }
+    }
+    return result;
 }
 
 /// Visits a camera's ordered 2D queue and asks every enabled drawable to draw
@@ -194,6 +215,9 @@ void DreamcastRenderManager2D::Draw() {
 void DreamcastRenderManager2D::Dispose() {
     // Borrowed, never owned: the runtime host outlives this manager.
     assembler_ = nullptr;
+    fontGlyphScratch_.clear();
+    fontGlyphScratch_.shrink_to_fit();
+    glyphLayoutScratch_.reset();
     ::RenderManager2D::Dispose();
 }
 
@@ -228,8 +252,32 @@ void DreamcastRenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     delete texture;
 }
 
-void DreamcastRenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D*) {
-    throw std::runtime_error("Dreamcast 2D rounded-rectangle support is not implemented.");
+void DreamcastRenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
+    if (assembler_ == nullptr) {
+        throw std::runtime_error(
+            "Dreamcast rounded-rectangle draw requested before a frame assembler was installed.");
+    }
+    AuthoredRoundedRectState state{};
+    ::Entity* owner = shape != nullptr ? shape->get_Parent() : nullptr;
+    if (shape != nullptr && owner != nullptr) {
+        const ::float3 position = owner->get_Position();
+        const ::float3 scale = owner->get_Scale();
+        const ::int2 size = shape->get_Size();
+        state.destinationX = position.X;
+        state.destinationY = position.Y;
+        state.destinationWidth = static_cast<float>(size.X) * scale.X;
+        state.destinationHeight = static_cast<float>(size.Y) * scale.Y;
+        state.radius = shape->get_Radius();
+        state.borderThickness = shape->get_BorderThickness();
+        state.roundedCorners = static_cast<std::uint8_t>(shape->get_Corners());
+        const ::byte4 fill = shape->get_FillColor();
+        const ::byte4 border = shape->get_BorderColor();
+        state.fillColor = {unitFromByte(fill.X), unitFromByte(fill.Y),
+                           unitFromByte(fill.Z), unitFromByte(fill.W)};
+        state.borderColor = {unitFromByte(border.X), unitFromByte(border.Y),
+                             unitFromByte(border.Z), unitFromByte(border.W)};
+    }
+    static_cast<void>(assembler_->addRoundedRect(state));
 }
 
 void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
@@ -252,14 +300,16 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     auto* texture = sprite != nullptr
                         ? dynamic_cast<DreamcastRuntimeTexture*>(sprite->get_Texture())
                         : nullptr;
-    // AuthoredSpriteState is an axis-aligned rectangle with no rotation field,
-    // so a rotated entity cannot be represented. It is rejected rather than
-    // drawn unrotated: silently dropping the rotation renders a wrong frame
-    // and reports success. Lift this once the sprite contract carries a
-    // rotation, which is what the engine's own emission passes alongside the
-    // quad.
-    const bool unrotated = owner != nullptr && isUnrotated(owner->get_Orientation());
-    if (owner != nullptr && texture != nullptr && unrotated) {
+    // The authored overlay accepts planar rotation; other orientation axes
+    // cannot be represented by this screen-space sprite contract.
+    const ::float4 orientation = owner != nullptr ? owner->get_Orientation() : ::float4{};
+    const bool planar = owner != nullptr &&
+                        std::fabs(orientation.X) <= kIdentityOrientationEpsilon &&
+                        std::fabs(orientation.Y) <= kIdentityOrientationEpsilon &&
+                        std::isfinite(orientation.Z) && std::isfinite(orientation.W);
+    if (owner != nullptr && texture != nullptr && planar) {
+        state.rotationCos = 1.0f - 2.0f * orientation.Z * orientation.Z;
+        state.rotationSin = 2.0f * orientation.W * orientation.Z;
         const SpriteTexture& handle = texture->spriteTexture();
 
         // ISpriteDrawable2D carries no screen position; it comes from the
@@ -326,6 +376,17 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
         // its address is passed through unchanged. It stays valid until
         // ReleaseTexture, which cannot run inside a frame.
         state.texture = &handle;
+        if (state.destinationWidth > 400.0f && state.destinationHeight > 400.0f) {
+            helengine_dc_backdrop_probe[0] += 1.0f;
+            helengine_dc_backdrop_probe[1] = position.X;
+            helengine_dc_backdrop_probe[2] = position.Y;
+            helengine_dc_backdrop_probe[3] = state.destinationWidth;
+            helengine_dc_backdrop_probe[4] = state.destinationHeight;
+            helengine_dc_backdrop_probe[5] = orientation.Z;
+            helengine_dc_backdrop_probe[6] = orientation.W;
+            helengine_dc_backdrop_probe[7] = state.rotationCos;
+            helengine_dc_backdrop_probe[8] = state.rotationSin;
+        }
     }
 
     // The return value is deliberately unused: the generated caller
@@ -335,8 +396,99 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     static_cast<void>(assembler_->addSprite(state));
 }
 
-void DreamcastRenderManager2D::DrawText(::ITextDrawable2D*) {
-    throw std::runtime_error("Dreamcast 2D text support is not implemented.");
+void DreamcastRenderManager2D::DrawText(::ITextDrawable2D* text) {
+    if (assembler_ == nullptr) {
+        throw std::runtime_error(
+            "Dreamcast text draw requested before a frame assembler was installed.");
+    }
+    ::Entity* owner = text != nullptr ? text->get_Parent() : nullptr;
+    ::FontAsset* font = text != nullptr ? text->get_Font() : nullptr;
+    if (text == nullptr || owner == nullptr || font == nullptr || font->get_IsDisposed()) {
+        assembler_->latchFailure(AuthoredFrameStatus::InvalidGlyph);
+        return;
+    }
+
+    const ::float2 shadow = text->get_ShadowOffset();
+    const float outlineScale = text->get_OutlineScale();
+    // Outline and shadow passes are outside the basic atlas-backed text slice;
+    // report them rather than silently rendering a visually different result.
+    if (!std::isfinite(outlineScale) || !std::isfinite(shadow.X) || !std::isfinite(shadow.Y) ||
+        outlineScale < 0.0f) {
+        assembler_->latchFailure(AuthoredFrameStatus::InvalidGlyph);
+        return;
+    }
+
+    auto* atlas = dynamic_cast<DreamcastRuntimeTexture*>(font->get_Texture());
+    ::Dictionary<char, ::FontChar>* characters = font->get_Characters();
+    ::FontInfo* fontInfo = font->get_FontInfo();
+    if (atlas == nullptr || atlas->get_IsDisposed() || characters == nullptr ||
+        fontInfo == nullptr || characters->get_Count() <= 0 ||
+        characters->get_Count() > kMaxFontGlyphMetrics) {
+        assembler_->latchFailure(AuthoredFrameStatus::InvalidGlyph);
+        return;
+    }
+    const SpriteTexture& texture = atlas->spriteTexture();
+    if (texture.vram == nullptr || texture.paddedSide == 0 ||
+        font->get_AtlasWidth() != texture.usedWidth ||
+        font->get_AtlasHeight() != texture.usedHeight) {
+        assembler_->latchFailure(AuthoredFrameStatus::InvalidGlyph);
+        return;
+    }
+
+    fontGlyphScratch_.clear();
+    fontGlyphScratch_.reserve(static_cast<std::size_t>(characters->get_Count()));
+    for (const auto& pair : *characters) {
+        const ::FontChar metric = pair.get_Value();
+        const ::float4 source = metric.SourceRect;
+        fontGlyphScratch_.push_back({static_cast<unsigned char>(pair.get_Key()),
+                                     source.X, source.Y, source.Z, source.W,
+                                     metric.OffsetY, metric.AdvanceWidth});
+    }
+    const ::float3 position = owner->get_Position();
+    const ::int2 size = text->get_Size();
+    const ::byte4 color = text->get_Color();
+    const TextLayoutInput input{text->get_Text().c_str(), position.X, position.Y,
+                                static_cast<float>(size.X), static_cast<float>(size.Y),
+                                text->get_FontScale(),
+                                static_cast<TextHorizontalAlignment>(text->get_Alignment()),
+                                text->get_WrapText(),
+                                {unitFromByte(color.X), unitFromByte(color.Y),
+                                 unitFromByte(color.Z), unitFromByte(color.W)}};
+    const AuthoredFontView view{static_cast<std::uint16_t>(font->get_AtlasWidth()),
+                                static_cast<std::uint16_t>(font->get_AtlasHeight()),
+                                texture.paddedSide, font->get_LineHeight(),
+                                fontInfo->get_SpaceWidth(), fontGlyphScratch_.data(),
+                                static_cast<std::uint16_t>(fontGlyphScratch_.size()), &texture};
+    if (glyphLayoutScratch_ == nullptr)
+        glyphLayoutScratch_.reset(new GlyphLayoutFrame());
+    if (layoutAuthoredText(view, input, *glyphLayoutScratch_) != TextLayoutStatus::Ok) {
+        assembler_->latchFailure(AuthoredFrameStatus::InvalidGlyph);
+        return;
+    }
+    struct TextPass { float x; float y; ::byte4 color; } passes[6]{};
+    unsigned passCount = 0;
+    if (shadow.X != 0.0f || shadow.Y != 0.0f)
+        passes[passCount++] = {shadow.X, shadow.Y, text->get_ShadowColor()};
+    if (outlineScale > 0.0f) {
+        const ::byte4 outlineColor = text->get_OutlineColor();
+        passes[passCount++] = {-outlineScale, 0.0f, outlineColor};
+        passes[passCount++] = {outlineScale, 0.0f, outlineColor};
+        passes[passCount++] = {0.0f, -outlineScale, outlineColor};
+        passes[passCount++] = {0.0f, outlineScale, outlineColor};
+    }
+    passes[passCount++] = {0.0f, 0.0f, color};
+    const DreamcastGlyphClip glyphClip = resolveGlyphClip(owner);
+    for (unsigned pass = 0; pass < passCount; ++pass) {
+        if (passes[pass].color.W == 0) continue;
+        for (std::uint16_t i = 0; i < glyphLayoutScratch_->glyphCount; ++i) {
+            AuthoredGlyphState glyph = glyphLayoutScratch_->glyphs[i];
+            glyph.destinationX += passes[pass].x; glyph.destinationY += passes[pass].y;
+            glyph.tint = {unitFromByte(passes[pass].color.X), unitFromByte(passes[pass].color.Y),
+                          unitFromByte(passes[pass].color.Z), unitFromByte(passes[pass].color.W)};
+            if (!glyphClip.clip(glyph)) continue;
+            if (assembler_->addGlyph(glyph) != AuthoredFrameStatus::Ok) return;
+        }
+    }
 }
 
 void DreamcastRenderManager2D::UpdateTextureRegionCore(::RuntimeTexture*,

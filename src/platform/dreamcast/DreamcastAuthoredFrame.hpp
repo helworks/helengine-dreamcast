@@ -93,7 +93,12 @@ enum class AuthoredFrameStatus : std::uint8_t {
     GeometryFailed,
     PresentFailed,
     TooManySprites,
+    TooManyRoundedRects,
+    TooManyGlyphs,
+    TooManyOverlaySubmissions,
     InvalidSprite,
+    InvalidRoundedRect,
+    InvalidGlyph,
     InvalidViewport,
 };
 
@@ -110,6 +115,8 @@ struct AuthoredFrameSummary {
     std::uint16_t rejectedTriangleCount;
     ColorRgba clearColor;
     std::uint16_t spriteCount;
+    std::uint16_t roundedRectCount;
+    std::uint16_t glyphCount;
 };
 
 /// Receives exactly one validated frame per successful assembly.
@@ -117,7 +124,7 @@ class IAuthoredFrameSink {
 public:
     virtual ~IAuthoredFrameSink() = default;
     virtual bool present(const GeometryFrame& geometry,
-                         const SpriteFrame& sprites,
+                         const AuthoredOverlayFrame& overlay,
                          const ColorRgba& clearColor) noexcept = 0;
 };
 
@@ -134,11 +141,17 @@ public:
     AuthoredFrameStatus setLights(const AuthoredLightState& lights) noexcept;
     AuthoredFrameStatus addDrawable(const AuthoredDrawState& drawable) noexcept;
     AuthoredFrameStatus addSprite(const AuthoredSpriteState& sprite) noexcept;
+    AuthoredFrameStatus addRoundedRect(const AuthoredRoundedRectState& rect) noexcept;
+    AuthoredFrameStatus addGlyph(const AuthoredGlyphState& glyph) noexcept;
+    void latchFailure(AuthoredFrameStatus status) noexcept;
     AuthoredFrameStatus present(IAuthoredFrameSink& sink) noexcept;
+    // Empty PVR submission for an active scene transition; never fabricates a camera.
+    AuthoredFrameStatus presentEmptyTransition(IAuthoredFrameSink& sink, const ColorRgba& clearColor) noexcept;
 
     const AuthoredFrameSummary& summary() const noexcept;
     const GeometryFrame& geometry() const noexcept;
     const SpriteFrame& sprites() const noexcept;
+    const AuthoredOverlayFrame& overlay() const noexcept;
 
 private:
     static constexpr std::uint16_t kMaxVertices = 64;
@@ -148,7 +161,7 @@ private:
     AuthoredCameraState camera_{};
     AuthoredLightState lights_{};
     AuthoredDrawState drawable_{};
-    SpriteFrame sprites_{};
+    std::unique_ptr<AuthoredOverlayFrame> overlay_;
     AuthoredFrameSummary summary_{};
     float viewportWidth_ = 0.0f;
     float viewportHeight_ = 0.0f;

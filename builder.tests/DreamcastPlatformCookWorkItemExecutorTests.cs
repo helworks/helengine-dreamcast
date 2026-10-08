@@ -15,12 +15,45 @@ public sealed class DreamcastPlatformCookWorkItemExecutorTests {
         string sourceImagePath = WriteSolidPng(Path.Combine(temporary.Path, "source.png"), 4, 4);
         string packageSourceRoot = Path.Combine(temporary.Path, "package-source");
         Directory.CreateDirectory(packageSourceRoot);
-        PlatformCookWorkItem workItem = CreateWorkItem(sourceImagePath, "font-atlas-texture", "textures/icon.dctex");
+        PlatformCookWorkItem workItem = CreateWorkItem(sourceImagePath, "audio-clip", "audio/sound.dctex");
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
             new DreamcastPlatformCookWorkItemExecutor().Execute(workItem, packageSourceRoot));
 
-        Assert.Contains("font-atlas-texture", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("audio-clip", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Writes a valid cooked texture for the dedicated font-atlas work-item kind.</summary>
+    [Fact]
+    public void Execute_WritesACookedPayloadForFontAtlasKind() {
+        using TemporaryDirectory temporary = new();
+        string sourceImagePath = WriteSolidPng(Path.Combine(temporary.Path, "source.png"), 4, 4);
+        string packageSourceRoot = Path.Combine(temporary.Path, "package-source");
+        Directory.CreateDirectory(packageSourceRoot);
+        PlatformCookWorkItem workItem = CreateWorkItem(sourceImagePath, "font-atlas-texture", "fonts/default.dctex", maxResolution: 256);
+
+        new DreamcastPlatformCookWorkItemExecutor().Execute(workItem, packageSourceRoot);
+
+        byte[] cooked = File.ReadAllBytes(Path.Combine(packageSourceRoot, "fonts", "default.dctex"));
+        Assert.Equal(DreamcastTextureSchemaIds.Magic, BitConverter.ToUInt32(cooked, 0));
+        Assert.Equal((ushort)4, BitConverter.ToUInt16(cooked, 10));
+        Assert.Equal((ushort)4, BitConverter.ToUInt16(cooked, 12));
+    }
+
+    /// <summary>Font-atlas resizing preserves a non-square atlas ratio under its 256-pixel cap.</summary>
+    [Fact]
+    public void Execute_CapsFontAtlasAndPreservesAspectRatio() {
+        using TemporaryDirectory temporary = new();
+        string sourceImagePath = WriteSolidPng(Path.Combine(temporary.Path, "source.png"), 512, 256);
+        string packageSourceRoot = Path.Combine(temporary.Path, "package-source");
+        Directory.CreateDirectory(packageSourceRoot);
+        PlatformCookWorkItem workItem = CreateWorkItem(sourceImagePath, "font-atlas-texture", "fonts/default.dctex", maxResolution: 256);
+
+        new DreamcastPlatformCookWorkItemExecutor().Execute(workItem, packageSourceRoot);
+
+        byte[] cooked = File.ReadAllBytes(Path.Combine(packageSourceRoot, "fonts", "default.dctex"));
+        Assert.Equal((ushort)256, BitConverter.ToUInt16(cooked, 10));
+        Assert.Equal((ushort)128, BitConverter.ToUInt16(cooked, 12));
     }
 
     /// <summary>Writes a cooked payload to the expected path for a supported source asset kind.</summary>

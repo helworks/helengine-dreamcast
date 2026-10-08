@@ -1,4 +1,5 @@
 #include "DreamcastRenderManager3D.hpp"
+#include "SceneManager.hpp"
 
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
@@ -261,6 +262,16 @@ void DreamcastRenderManager3D::Draw() {
 
     const ::int2 windowSize = get_MainWindowSize();
     assembler.begin(static_cast<float>(windowSize.X), static_cast<float>(windowSize.Y));
+    // An active transition can contain a camera before its drawables finish
+    // loading. Present the empty platform frame until the scene is committed.
+    if (core->get_SceneManager() != nullptr &&
+        core->get_SceneManager()->get_IsSceneTransitionActive()) {
+        const auto emptyStatus=assembler.presentEmptyTransition(*sink_,lastSummary_.clearColor);
+        lastSummary_=assembler.summary();
+        if(emptyStatus!=AuthoredFrameStatus::Ok) rejectFrame(emptyStatus);
+        ++presentedFrames_;
+        return;
+    }
     AuthoredFrameStatus status = assembler.setLights(gatherLights(*objectManager));
     for (int32_t index = 0; index < cameraCount && status == AuthoredFrameStatus::Ok; ++index) {
         ::ICamera* camera = cameras->get_Item(index);
@@ -268,7 +279,14 @@ void DreamcastRenderManager3D::Draw() {
             status = AuthoredFrameStatus::InvalidCamera;
             break;
         }
-        status = assembler.setCamera(gatherCamera(*camera));
+        const AuthoredCameraState cameraState = gatherCamera(*camera);
+        status = assembler.setCamera(cameraState);
+        if (status == AuthoredFrameStatus::InvalidClear) {
+            throw std::runtime_error(std::string("Dreamcast invalid camera clear: color=") +
+                (cameraState.clearColorEnabled ? "1" : "0") + " depth=" +
+                (cameraState.clearDepthEnabled ? "1" : "0") + " stencil=" +
+                (cameraState.clearStencilEnabled ? "1" : "0"));
+        }
         if (status != AuthoredFrameStatus::Ok) {
             break;
         }

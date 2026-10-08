@@ -29,11 +29,14 @@ bool near(float left, float right, float epsilon = 1.0e-3f) {
 /// Records every presentation so tests can prove the exactly-once contract.
 class RecordingSink final : public IAuthoredFrameSink {
 public:
-    bool present(const GeometryFrame& geometry, const SpriteFrame& sprites,
+    bool present(const GeometryFrame& geometry, const AuthoredOverlayFrame& overlay,
                 const ColorRgba& clearColor) noexcept override {
         ++presentCount;
         lastTriangleCount = geometry.triangleCount;
-        lastSpriteCount = sprites.spriteCount;
+        lastSpriteCount = overlay.sprites.spriteCount;
+        lastRectCount = overlay.roundedRectCount;
+        lastGlyphCount = overlay.glyphCount;
+        lastOrderCount = overlay.orderCount;
         lastClear = clearColor;
         if (geometry.triangleCount != 0) {
             lastFirstColor = geometry.triangles[0].vertices[0].color;
@@ -45,6 +48,9 @@ public:
     int presentCount = 0;
     std::uint16_t lastTriangleCount = 0;
     std::uint16_t lastSpriteCount = 0;
+    std::uint16_t lastRectCount = 0;
+    std::uint16_t lastGlyphCount = 0;
+    std::uint16_t lastOrderCount = 0;
     ColorRgba lastClear{};
     ColorRgba lastFirstColor{};
 };
@@ -94,6 +100,135 @@ AuthoredSpriteState validSprite() {
                                0.0f, 0.0f, 0.75f, 0.5f,
                                &dummyTexture,
                                ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}};
+}
+
+AuthoredRoundedRectState validRect() {
+    return AuthoredRoundedRectState{10.0f, 20.0f, 90.0f, 45.0f, 8.0f, 2.0f,
+                                    kRoundedRectAllCorners,
+                                    ColorRgba{0.1f, 0.2f, 0.3f, 0.8f},
+                                    ColorRgba{0.8f, 0.7f, 0.6f, 1.0f}};
+}
+
+AuthoredGlyphState validGlyph() {
+    return AuthoredGlyphState{24.0f, 30.0f, 12.0f, 18.0f,
+                              0.1f, 0.2f, 0.4f, 0.7f, &dummyTexture,
+                              ColorRgba{1.0f, 1.0f, 1.0f, 1.0f}};
+}
+
+void MixedOverlayKindsRetainPainterOrder() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addRoundedRect(validRect()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addGlyph(validGlyph()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+    const AuthoredOverlayFrame& overlay = assembler.overlay();
+    EXPECT(overlay.orderCount == 4);
+    EXPECT(overlay.order[0].kind == AuthoredOverlayKind::Sprite);
+    EXPECT(overlay.order[0].index == 0);
+    EXPECT(overlay.order[1].kind == AuthoredOverlayKind::RoundedRect);
+    EXPECT(overlay.order[1].index == 0);
+    EXPECT(overlay.order[2].kind == AuthoredOverlayKind::Glyph);
+    EXPECT(overlay.order[2].index == 0);
+    EXPECT(overlay.order[3].kind == AuthoredOverlayKind::Sprite);
+    EXPECT(overlay.order[3].index == 1);
+    EXPECT(sink.lastRectCount == 1 && sink.lastGlyphCount == 1);
+}
+
+void OverlayCapacityAndInvalidInputFailBeforePresentation() {
+    RecordingSink sink;
+    AuthoredFrameAssembler assembler;
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    for (std::uint16_t i = 0; i < kMaxRoundedRects; ++i)
+        EXPECT(assembler.addRoundedRect(validRect()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addRoundedRect(validRect()) == AuthoredFrameStatus::TooManyRoundedRects);
+    EXPECT(assembler.addGlyph(validGlyph()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::TooManyRoundedRects);
+    EXPECT(sink.presentCount == 0);
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    for (std::uint16_t i = 0; i < kMaxGlyphs; ++i)
+        EXPECT(assembler.addGlyph(validGlyph()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addGlyph(validGlyph()) == AuthoredFrameStatus::TooManyGlyphs);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::TooManyGlyphs);
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    for (std::uint16_t i = 0; i < kMaxSprites; ++i)
+        EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::Ok);
+    for (std::uint16_t i = 0; i < kMaxRoundedRects; ++i)
+        EXPECT(assembler.addRoundedRect(validRect()) == AuthoredFrameStatus::Ok);
+    for (std::uint16_t i = 0; i < kMaxGlyphs; ++i)
+        EXPECT(assembler.addGlyph(validGlyph()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::TooManyOverlaySubmissions);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::TooManyOverlaySubmissions);
+}
+
+void InvalidRectAndGlyphLatchFirstFailureAndBeginClearsOverlay() {
+    RecordingSink sink;
+    AuthoredFrameAssembler assembler;
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    AuthoredRoundedRectState rect = validRect();
+    rect.destinationWidth = std::numeric_limits<float>::infinity();
+    EXPECT(assembler.addRoundedRect(rect) == AuthoredFrameStatus::InvalidRoundedRect);
+    AuthoredGlyphState glyph = validGlyph();
+    glyph.texture = nullptr;
+    EXPECT(assembler.addGlyph(glyph) == AuthoredFrameStatus::InvalidGlyph);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidRoundedRect);
+    EXPECT(sink.presentCount == 0);
+
+    assembler.begin(640.0f, 480.0f);
+    EXPECT(assembler.overlay().orderCount == 0);
+    EXPECT(assembler.overlay().roundedRectCount == 0);
+    EXPECT(assembler.overlay().glyphCount == 0);
+    EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addGlyph(validGlyph()) == AuthoredFrameStatus::Ok);
+}
+
+void RoundedRectAndGlyphValidationRejectMalformedFields() {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    AuthoredRoundedRectState invalidRects[] = {validRect(), validRect(), validRect()};
+    invalidRects[0].destinationHeight = 0.0f;
+    invalidRects[1].radius = nan;
+    invalidRects[2].roundedCorners = 0x80;
+    for (const AuthoredRoundedRectState& rect : invalidRects) {
+        AuthoredFrameAssembler assembler;
+        RecordingSink sink;
+        assembler.begin(640.0f, 480.0f);
+        EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+        EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+        EXPECT(assembler.addRoundedRect(rect) == AuthoredFrameStatus::InvalidRoundedRect);
+        EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidRoundedRect);
+        EXPECT(assembler.overlay().roundedRectCount == 0);
+        EXPECT(sink.presentCount == 0);
+    }
+    AuthoredGlyphState invalidGlyphs[] = {validGlyph(), validGlyph(), validGlyph()};
+    invalidGlyphs[0].destinationWidth = -1.0f;
+    invalidGlyphs[1].sourceV1 = invalidGlyphs[1].sourceV0;
+    invalidGlyphs[2].sourceU0 = nan;
+    for (const AuthoredGlyphState& glyph : invalidGlyphs) {
+        AuthoredFrameAssembler assembler;
+        RecordingSink sink;
+        assembler.begin(640.0f, 480.0f);
+        EXPECT(assembler.setCamera(validCamera()) == AuthoredFrameStatus::Ok);
+        EXPECT(assembler.addDrawable(validDrawable()) == AuthoredFrameStatus::Ok);
+        EXPECT(assembler.addGlyph(glyph) == AuthoredFrameStatus::InvalidGlyph);
+        EXPECT(assembler.present(sink) == AuthoredFrameStatus::InvalidGlyph);
+        EXPECT(assembler.overlay().glyphCount == 0);
+        EXPECT(sink.presentCount == 0);
+    }
 }
 
 void OneSpriteIsAcceptedAndCounted() {
@@ -307,7 +442,22 @@ void SourceSpanFromADegenerateTextureIsRejectedByTheAssembler() {
 
 } // namespace
 
+void UiOnlyFramePresentsWithoutMesh() {
+    AuthoredFrameAssembler assembler;
+    RecordingSink sink;
+    assembler.begin(640.0f, 480.0f);
+    AuthoredCameraState camera = validCamera();
+    camera.clearDepthEnabled = false;
+    EXPECT(assembler.setCamera(camera) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.addSprite(validSprite()) == AuthoredFrameStatus::Ok);
+    EXPECT(assembler.present(sink) == AuthoredFrameStatus::Ok);
+    EXPECT(sink.presentCount == 1);
+    EXPECT(sink.lastTriangleCount == 0);
+    EXPECT(sink.lastSpriteCount == 1);
+}
+
 int main() {
+    UiOnlyFramePresentsWithoutMesh();
     OneSpriteIsAcceptedAndCounted();
     SixtyFifthSpriteFails();
     InvalidSpritesFailBeforeAnyPresentation();
@@ -319,6 +469,10 @@ int main() {
     ASpritelessFrameWithABadViewportIsRejectedByPresent();
     SourceSpanRescalesAnImageRectangleOntoThePaddedSquare();
     SourceSpanFromADegenerateTextureIsRejectedByTheAssembler();
+    MixedOverlayKindsRetainPainterOrder();
+    OverlayCapacityAndInvalidInputFailBeforePresentation();
+    InvalidRectAndGlyphLatchFirstFailureAndBeginClearsOverlay();
+    RoundedRectAndGlyphValidationRejectMalformedFields();
     if (failures != 0) {
         std::cerr << failures << " assertion(s) failed\n";
         return 1;

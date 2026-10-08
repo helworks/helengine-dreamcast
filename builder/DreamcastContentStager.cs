@@ -6,15 +6,15 @@ namespace helengine.dreamcast.builder;
 
 /// <summary>Copies only manifest-declared, runtime-loadable cooked artifacts into a deterministic ROMFS staging tree.</summary>
 /// <remarks>
-/// The Dreamcast v0.2 runtime can load scenes, models, platform materials and textures. Scenes, models and
-/// platform materials copy verbatim, byte for byte. Textures reach the ROMFS by a different route entirely: the
+/// The Dreamcast runtime can load scenes, animations, models, platform materials, FontAssets and textures. Scenes, animations,
+/// models, platform materials and FontAssets copy verbatim, byte for byte. Textures reach the ROMFS by a different route entirely: the
 /// editor build graph declares a builder-owned "texture" cook capability, so
 /// <see cref="DreamcastPlatformCookWorkItemExecutor"/> already wrote each texture as twiddled ARGB4444
 /// <c>dc-texture-v1</c> bytes into the package source root before staging runs, and the editor leaves those
 /// builder-owned outputs out of <c>manifest.CookedArtifacts</c> entirely. This stager embeds them by copying the
 /// builder's own cooked relative paths verbatim. A declared artifact that deserializes as a generic engine
 /// texture is therefore *not* a Dreamcast texture and is skipped, because the runtime cannot open the engine
-/// format. Declared artifacts of any other serialized type (fonts, audio, imported blobs) are skipped for the
+/// format. Declared artifacts of any other serialized type (audio, imported blobs) are skipped for the
 /// same reason: the runtime could never open them and the ROMFS is resident in console RAM. The omitted paths
 /// are exposed through <see cref="LastSkippedRelativePaths"/> for diagnostics.
 /// </remarks>
@@ -191,6 +191,12 @@ public sealed class DreamcastContentStager {
             return ArtifactStageKind.NotLoadable;
         }
 
+        if (string.Equals(Path.GetExtension(sourcePath), ".hefont", StringComparison.OrdinalIgnoreCase)) {
+            using MemoryStream stream = new(bytes, writable: false);
+            using FontAsset font = helengine.files.FontAssetBinarySerializer.Deserialize(stream);
+            return ArtifactStageKind.VerbatimCopy;
+        }
+
         Asset asset;
         try {
             asset = AssetSerializer.DeserializeFromBytes(bytes);
@@ -198,7 +204,7 @@ public sealed class DreamcastContentStager {
             return ArtifactStageKind.NotLoadable;
         }
 
-        if (asset is SceneAsset || asset is ModelAsset || asset is PlatformMaterialAsset) {
+        if (asset is SceneAsset || asset is AnimationClipAsset || asset is ModelAsset || asset is PlatformMaterialAsset) {
             if (asset is IDisposable loadableDisposable) {
                 loadableDisposable.Dispose();
             }

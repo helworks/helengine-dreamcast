@@ -350,11 +350,10 @@ from the vertex contributes nothing), then `finalColor = clamp01(materialColor
 There is no specular term.
 
 The authored snapshot (`helengine_dreamcast_authored_snapshot`, magic `HEAS`)
-is version 3 as of this work: the 16th `uint32_t` field is now `packedCounts`,
-packing the directional light count `gatherLights` reported for the frame into
-its low 16 bits and the sprite count into its high 16 bits (`lights =
-packedCounts & 0xFFFF`, `sprites = packedCounts >> 16`);
-`kDreamcastAuthoredSnapshotVersion = 3u`. The struct's overall size (64 bytes)
+is version 4: the 16th `uint32_t` field is `packedCounts`, with four 8-bit
+lanes: directional lights in bits 0–7, sprites in 8–15, rounded rectangles in
+16–23, and glyphs in 24–31. The authored limits (4, 64, 64, 255) fit those
+lanes. `kDreamcastAuthoredSnapshotVersion = 4u`. The struct's overall size (64 bytes)
 and every other field's position are unchanged from version 1. (Version 2
 carried the same low-16-bit light count alone, as a bare `directionalLightCount`
 field.)

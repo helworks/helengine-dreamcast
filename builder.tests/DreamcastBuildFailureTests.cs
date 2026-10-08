@@ -53,6 +53,38 @@ public sealed class DreamcastBuildFailureTests {
         Assert.False(executor.Invoked);
     }
 
+    /// <summary>Verifies original font hashes before scaling only the staged runtime metrics.</summary>
+    [Fact]
+    public async Task BuildAsyncScalesStagedFontsWithoutChangingManifestInputs() {
+        using TemporaryDirectory temporary = new();
+        RecordingExecutor executor = new(null);
+        DreamcastPlatformAssetBuilder builder = new(executor);
+        PlatformBuildRequest request = CreateRequest(temporary.Path, includeFont: true);
+        string sourceFontPath = Path.Combine(request.WorkingRoot, "package-source", "fonts", "sample.hefont");
+        byte[] originalFont = File.ReadAllBytes(sourceFontPath);
+        RecordingReporter reporter = new();
+
+        for (int build = 0; build < 2; build++) {
+            if (build == 1) {
+                // An undeclared file must not participate in the runtime font transformation.
+                File.WriteAllText(Path.Combine(request.WorkingRoot, "package-source", "unlisted.hefont"), "invalid font");
+            }
+            PlatformBuildReport report = await builder.BuildAsync(request, reporter, reporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded, string.Join("\n", report.Diagnostics.Select(value => value.Message)));
+            Assert.Equal(originalFont, File.ReadAllBytes(sourceFontPath));
+            string stagedFontPath = Path.Combine(executor.ContentRoot, "fonts", "sample.hefont");
+            using FileStream input = File.OpenRead(stagedFontPath);
+            using helengine.FontAsset font = helengine.files.FontAssetBinarySerializer.Deserialize(input);
+            Assert.Equal(8, font.AtlasWidth);
+            Assert.Equal(4, font.AtlasHeight);
+            Assert.Equal(10f, font.LineHeight);
+            Assert.Equal(6f, font.Characters['A'].AdvanceWidth);
+            Assert.Equal(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), File.GetLastWriteTimeUtc(stagedFontPath));
+            Assert.Equal(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), Directory.GetLastWriteTimeUtc(Path.GetDirectoryName(stagedFontPath)!));
+        }
+    }
+
     /// <summary>Requires the isolated repository root and its build script before any native process starts.</summary>
     [Fact]
     public void ProductionExecutorRequiresRepositoryRoot() {
@@ -88,11 +120,30 @@ public sealed class DreamcastBuildFailureTests {
         Assert.Contains("GeneratedCoreCppRootPath", exception.Message, StringComparison.Ordinal);
     }
 
-    static PlatformBuildRequest CreateRequest(string root, string generatedCoreRoot = null) {
+    static PlatformBuildRequest CreateRequest(string root, string generatedCoreRoot = null, bool includeFont = false) {
         string workingRoot = Path.Combine(root, "working");
         string packageSource = Path.Combine(workingRoot, "package-source");
         Directory.CreateDirectory(packageSource);
         PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(packageSource);
+        PlatformCookWorkItem[] workItems = [];
+        if (includeFont) {
+            using helengine.FontAsset font = new(new helengine.FontInfo("fixture", 18, 8f), null,
+                new Dictionary<char, helengine.FontChar> {
+                    ['A'] = new(new helengine.float4(0f, 0f, 0.25f, 0.5f), 6f, 12f, 4f, 8f)
+                }, 20f, 16, 8) {
+                CookedAtlasTextureRelativePath = "fonts/sample.dctex"
+            };
+            using MemoryStream fontStream = new();
+            helengine.files.FontAssetBinarySerializer.Serialize(fontStream, font);
+            byte[] fontBytes = fontStream.ToArray();
+            DreamcastCookedTestContent.WriteFile(packageSource, "fonts/sample.hefont", fontBytes);
+            artifacts = [.. artifacts, new("fonts/sample.hefont", "font/sample", DreamcastCookedTestContent.Hash(fontBytes), "font", "baseline")];
+            string atlasSource = Path.Combine(root, "atlas.hasset");
+            using helengine.TextureAsset texture = DreamcastCookedTestContent.CreateTexture(16, 8);
+            File.WriteAllBytes(atlasSource, helengine.files.AssetSerializer.SerializeToBytes(texture));
+            workItems = [new("font-atlas", atlasSource, "font-atlas-texture", "dc", "runtime-texture",
+                "fonts/sample.dctex", "font-atlas", "source-hash", "settings-hash", "{\"maxResolution\":8,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"A8\"}", [])];
+        }
         string generated = generatedCoreRoot ?? Path.Combine(root, "generated-core");
         if (generatedCoreRoot == null) {
             Directory.CreateDirectory(generated);
@@ -118,7 +169,7 @@ public sealed class DreamcastBuildFailureTests {
             [],
             [],
             new PlatformContainerWritePlan("dc-romfs-package", []),
-            [],
+            workItems,
             PlatformBuildRuntimeFeatureManifest.Empty);
         PlatformCookProfile cookProfile = new(
             "dc-default",

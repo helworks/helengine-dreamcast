@@ -8,6 +8,10 @@ public sealed class DreamcastCookedContentValidator {
     const int MaximumTriangles = 128;
     const string CameraTypeId = "helengine.CameraComponent";
     const string MeshTypeId = "helengine.MeshComponent";
+    const string ViewportTypeId = "helengine.ViewportComponent";
+    const string SpriteTypeId = "helengine.SpriteComponent";
+    const string TextTypeId = "helengine.TextComponent";
+    const string RoundedRectTypeId = "helengine.RoundedRectComponent";
     const string DirectionalLightTypeId = "helengine.DirectionalLightComponent";
     const string AmbientLightTypeId = "helengine.AmbientLightComponent";
     const string RendererFamilyId = "dc-standard";
@@ -53,8 +57,8 @@ public sealed class DreamcastCookedContentValidator {
         if (cameraCount != 1) {
             throw new InvalidOperationException($"Dreamcast v0.2 requires exactly one enabled camera component in the startup scene; found {cameraCount}.");
         }
-        if (meshCount != 1) {
-            throw new InvalidOperationException($"Dreamcast v0.2 requires exactly one enabled mesh component in the startup scene; found {meshCount}.");
+        if (meshCount > 1) {
+            throw new InvalidOperationException($"Dreamcast supports at most one enabled mesh component in the startup scene; found {meshCount}.");
         }
 
         int modelCount = 0;
@@ -72,6 +76,10 @@ public sealed class DreamcastCookedContentValidator {
                 textureCount++;
                 continue;
             }
+            if (string.Equals(Path.GetExtension(relativePath), ".hefont", StringComparison.OrdinalIgnoreCase)) {
+                ValidateFontAsset(root, relativePath, bytes);
+                continue;
+            }
             Asset staged = DeserializeAsset(relativePath, bytes);
             if (staged is ModelAsset model) {
                 ValidateModel(model, relativePath);
@@ -79,14 +87,17 @@ public sealed class DreamcastCookedContentValidator {
             } else if (staged is PlatformMaterialAsset material) {
                 ValidateMaterial(material, relativePath);
                 materialCount++;
+            } else if (staged is SceneAsset || staged is AnimationClipAsset) {
+                // Additional scenes and transform clips are loaded by generated Core.
+                continue;
             } else {
                 throw new InvalidOperationException($"Staged package contains unsupported cooked asset type '{staged.GetType().Name}' at '{relativePath}'.");
             }
         }
-        if (modelCount < 1) {
+        if (meshCount > 0 && modelCount < 1) {
             throw new InvalidOperationException("Staged package contains no model; the startup mesh has nothing to draw.");
         }
-        if (materialCount < 1) {
+        if (meshCount > 0 && materialCount < 1) {
             throw new InvalidOperationException("Staged package contains no dc-standard material; the startup mesh has no material.");
         }
         // Every cooked texture is uploaded into the pool the tile accelerator leaves behind and held for the
@@ -107,13 +118,27 @@ public sealed class DreamcastCookedContentValidator {
                     cameraCount++;
                 } else if (string.Equals(component.ComponentTypeId, MeshTypeId, StringComparison.Ordinal)) {
                     meshCount++;
+                } else if (string.Equals(component.ComponentTypeId, SpriteTypeId, StringComparison.Ordinal)) {
+                    // Sprites are gathered by the 2D manager and submitted in the translucent overlay pass.
+                    continue;
+                } else if (string.Equals(component.ComponentTypeId, ViewportTypeId, StringComparison.Ordinal)) {
+                    // The viewport scales the authored screen-space subtree before its 2D drawables are gathered.
+                    continue;
+                } else if (string.Equals(component.ComponentTypeId, TextTypeId, StringComparison.Ordinal) ||
+                           string.Equals(component.ComponentTypeId, RoundedRectTypeId, StringComparison.Ordinal)) {
+                    // Text and rounded rectangles are gathered into the ordered Dreamcast 2D overlay.
+                    continue;
                 } else if (string.Equals(component.ComponentTypeId, DirectionalLightTypeId, StringComparison.Ordinal) ||
                            string.Equals(component.ComponentTypeId, AmbientLightTypeId, StringComparison.Ordinal)) {
                     continue;
+                } else if (component.ComponentTypeId is "helengine.AnimationPlayerComponent" or
+                           "helengine.LayoutComponent" or "helengine.ScrollComponent" or "helengine.ClipRectComponent") {
+                    // Lifecycle, transforms and UI layout run in generated Core.
+                    continue;
                 } else if (component.ComponentTypeId != null && component.ComponentTypeId.StartsWith("helengine.", StringComparison.Ordinal)) {
-                    // Engine 2D, light, audio, animation and physics components have no Dreamcast v0.2
-                    // adapter; project code components run inside generated Core and are allowed.
-                    throw new InvalidOperationException($"Dreamcast v0.2 supports only camera and mesh engine components in the startup scene; entity '{entity.Name}' carries '{component.ComponentTypeId}'.");
+                    // Other engine audio and physics components have no Dreamcast adapter;
+                    // project code components run inside generated Core and are allowed.
+                    throw new InvalidOperationException($"Dreamcast supports camera, mesh, viewport, sprite, text and rounded-rectangle engine components in the startup scene; entity '{entity.Name}' carries '{component.ComponentTypeId}'.");
                 }
             }
         }
@@ -201,6 +226,38 @@ public sealed class DreamcastCookedContentValidator {
                 $"Cooked texture '{path}' is {bytes.LongLength} bytes; a {paddedSide} square ARGB4444 payload is {DreamcastTextureSchemaIds.HeaderBytes + pixelBytes}.");
         }
         return pixelBytes;
+    }
+
+    static void ValidateFontAsset(string root, string path, byte[] bytes) {
+        FontAsset font;
+        try {
+            using MemoryStream stream = new(bytes, writable: false);
+            font = helengine.files.FontAssetBinarySerializer.Deserialize(stream);
+        } catch (Exception exception) when (exception is not OutOfMemoryException) {
+            throw new InvalidOperationException($"Cooked font '{path}' could not be deserialized: {exception.Message}", exception);
+        }
+
+        using (font) {
+            if (font.FontInfo == null || font.Characters == null || font.Characters.Count == 0 || font.Characters.Count > 256) {
+                throw new InvalidOperationException($"Cooked font '{path}' must contain font metrics and between 1 and 256 glyphs.");
+            }
+            if (font.AtlasWidth < 1 || font.AtlasWidth > DreamcastTextureSchemaIds.MaximumSide || font.AtlasHeight < 1 || font.AtlasHeight > DreamcastTextureSchemaIds.MaximumSide ||
+                !float.IsFinite(font.LineHeight) || font.LineHeight <= 0f ||
+                !float.IsFinite(font.FontInfo.SpaceWidth) || font.FontInfo.SpaceWidth < 0f) {
+                throw new InvalidOperationException($"Cooked font '{path}' has invalid Dreamcast atlas dimensions or layout metrics.");
+            }
+
+            string atlasPath = DreamcastSceneCompatibilityValidator.NormalizeRelativePath(
+                font.CookedAtlasTextureRelativePath, $"Font '{path}' atlas path");
+            byte[] atlas = ReadStagedFile(root, atlasPath);
+            ValidateCookedTexture(atlas, atlasPath);
+            ushort atlasWidth = BitConverter.ToUInt16(atlas, 10);
+            ushort atlasHeight = BitConverter.ToUInt16(atlas, 12);
+            if (font.AtlasWidth != atlasWidth || font.AtlasHeight != atlasHeight) {
+                throw new InvalidOperationException(
+                    $"Cooked font '{path}' records a {font.AtlasWidth}x{font.AtlasHeight} atlas, but '{atlasPath}' contains {atlasWidth}x{atlasHeight} pixels.");
+            }
+        }
     }
 
     static void ValidateModel(ModelAsset model, string path) {

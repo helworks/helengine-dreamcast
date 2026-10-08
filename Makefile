@@ -16,7 +16,8 @@ KOS_BASE ?= /opt/toolchains/dc/kos
 
 ELF := $(BUILD_ROOT)/$(TARGET).elf
 MAP := $(BUILD_ROOT)/$(TARGET).map
-OBJ_ROOT := $(BUILD_ROOT)/obj
+OBJ_ROOT ?= $(BUILD_ROOT)/obj
+PACKAGE_OBJ_ROOT := $(BUILD_ROOT)/package-obj
 
 SOURCES := \
     src/main.cpp \
@@ -24,6 +25,9 @@ SOURCES := \
     src/platform/dreamcast/DreamcastVideo.cpp \
     src/platform/dreamcast/DreamcastRasterRenderer.cpp \
     src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
+    src/platform/dreamcast/DreamcastRoundedRectGeometry.cpp \
+    src/platform/dreamcast/DreamcastTextLayout.cpp \
+    src/platform/dreamcast/DreamcastOverlayValidation.cpp \
     src/platform/dreamcast/DreamcastCubeMesh.cpp \
     src/platform/dreamcast/DreamcastAuthoredTransform.cpp \
     src/platform/dreamcast/DreamcastAuthoredFrame.cpp
@@ -115,9 +119,9 @@ CATALOG_OBJECT := $(OBJ_ROOT)/catalog/dc_runtime_scene_catalog.o
 OBJECTS += $(CATALOG_OBJECT)
 DEPS += $(CATALOG_OBJECT:.o=.d)
 ROMFS_IMAGE := $(BUILD_ROOT)/romdisk.img
-ROMDISK_SOURCE := $(BUILD_ROOT)/romdisk.c
-ROMDISK_DATA_OBJECT := $(OBJ_ROOT)/romdisk/romdisk.o
-ROMDISK_BASE_OBJECT := $(OBJ_ROOT)/romdisk/romdiskbase.o
+ROMDISK_SOURCE := $(PACKAGE_OBJ_ROOT)/romdisk.c
+ROMDISK_DATA_OBJECT := $(PACKAGE_OBJ_ROOT)/romdisk/romdisk.o
+ROMDISK_BASE_OBJECT := $(PACKAGE_OBJ_ROOT)/romdisk/romdiskbase.o
 GENROMFS ?= /opt/toolchains/dc/kos-built/utils/genromfs/genromfs
 BIN2C ?= /opt/toolchains/dc/kos-built/utils/bin2c/bin2c
 OBJECTS += $(ROMDISK_DATA_OBJECT) $(ROMDISK_BASE_OBJECT)
@@ -125,8 +129,11 @@ DEPS += $(ROMDISK_DATA_OBJECT:.o=.d) $(ROMDISK_BASE_OBJECT:.o=.d)
 endif
 
 CPPFLAGS += -Isrc
-CXXFLAGS += -std=c++20 -Wall -Wextra -Werror -g
-CFLAGS += -Wall -Wextra -Werror -g
+# The locked KOS wrapper supplies architecture flags and debug symbols, but no
+# optimization level. Console runtime builds must not default to GCC's -O0.
+OPTIMIZATION ?= -O2
+CXXFLAGS += -std=c++20 -Wall -Wextra -Werror -g $(OPTIMIZATION)
+CFLAGS += -Wall -Wextra -Werror -g $(OPTIMIZATION)
 HOST_CXX ?= c++
 
 .PHONY: all host-test clean
@@ -166,7 +173,8 @@ $(ROMFS_IMAGE): FORCE
 
 $(ROMDISK_SOURCE): $(ROMFS_IMAGE)
 	@mkdir -p "$(dir $@)"
-	$(BIN2C) "$<" "$@" romdisk
+	$(BIN2C) "$<" "$@.tmp" romdisk
+	@if ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm -f "$@.tmp"; fi
 
 $(ROMDISK_DATA_OBJECT): $(ROMDISK_SOURCE)
 	@mkdir -p "$(dir $@)"
@@ -206,6 +214,7 @@ host-test:
 		-o $(BUILD_ROOT)/dreamcast-authored-mesh-tests
 	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
 		tests/native/DreamcastRasterSeamTests.cpp \
+		src/platform/dreamcast/DreamcastOverlayValidation.cpp \
 		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
 		src/platform/dreamcast/DreamcastCubeMesh.cpp \
 		-o $(BUILD_ROOT)/dreamcast-raster-seam-tests
@@ -231,6 +240,14 @@ host-test:
 		src/platform/dreamcast/DreamcastGeometryPipeline.cpp \
 		src/platform/dreamcast/DreamcastCubeMesh.cpp \
 		-o $(BUILD_ROOT)/dreamcast-sprite-submission-tests
+	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
+		tests/native/DreamcastRoundedRectGeometryTests.cpp \
+		src/platform/dreamcast/DreamcastRoundedRectGeometry.cpp \
+		-o $(BUILD_ROOT)/dreamcast-rounded-rect-geometry-tests
+	$(HOST_CXX) -std=c++17 -Wall -Wextra -Werror -Isrc \
+		tests/native/DreamcastTextLayoutTests.cpp \
+		src/platform/dreamcast/DreamcastTextLayout.cpp \
+		-o $(BUILD_ROOT)/dreamcast-text-layout-tests
 	$(BUILD_ROOT)/dreamcast-geometry-tests
 	$(BUILD_ROOT)/dreamcast-authored-transform-tests
 	$(BUILD_ROOT)/dreamcast-authored-mesh-tests
@@ -239,6 +256,8 @@ host-test:
 	$(BUILD_ROOT)/dreamcast-authored-submission-tests
 	$(BUILD_ROOT)/dreamcast-texture-format-tests
 	$(BUILD_ROOT)/dreamcast-sprite-submission-tests
+	$(BUILD_ROOT)/dreamcast-rounded-rect-geometry-tests
+	$(BUILD_ROOT)/dreamcast-text-layout-tests
 
 clean:
 	-rm -rf "$(OBJ_ROOT)" "$(ELF)" "$(MAP)"

@@ -3,14 +3,21 @@
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
 #include "IInputBackend.hpp"
+#include <cstdint>
+
+template <typename T> class Array;
+class InputGamepadState;
 
 namespace helengine::dreamcast {
 
-/// Supplies a deterministic empty frame until the native Maple adapter exists.
-/// The generated Core contract permits an input backend with no connected devices.
+/// Captures native Maple controllers into reusable Core gamepad snapshots.
 class DreamcastInputBackend final : public ::IInputBackend {
 public:
+    DreamcastInputBackend();
     ::InputFrameState CaptureFrame() override;
+private:
+    ::Array<::InputGamepadState>* gamepadFrames_[2]{};
+    std::uint8_t nextFrame_ = 0;
 };
 
 } // namespace helengine::dreamcast

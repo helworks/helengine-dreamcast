@@ -1,5 +1,7 @@
 #include "DreamcastRasterRenderer.hpp"
 
+#include "DreamcastOverlayValidation.hpp"
+#include "DreamcastRoundedRectGeometry.hpp"
 #include "DreamcastVideo.hpp"
 
 #include <dc/pvr.h>
@@ -8,6 +10,8 @@
 
 #include <cstddef>
 #include <cstring>
+#include <new>
+#include <utility>
 
 namespace helengine::dreamcast {
 
@@ -84,64 +88,8 @@ bool validGeometryFrame(const GeometryFrame& geometry) noexcept {
     return true;
 }
 
-/// An empty overlay, shared by the sprite-less renderFrame() overloads.
-///
-/// SpriteFrame is a few kilobytes of fixed storage, so the diagnostic path
-/// reads one immutable copy in .rodata rather than zeroing a stack frame
-/// every time it presents.
-constexpr SpriteFrame kEmptySpriteFrame{};
-
-bool isPowerOfTwo(std::uint16_t value) noexcept {
-    return value != 0 && (value & static_cast<std::uint16_t>(value - 1u)) == 0;
-}
-
-bool validSpriteTexture(const SpriteTexture& texture) noexcept {
-    // pvr_poly_compile() encodes the U/V size as __builtin_ctz(side) - 3 and
-    // only asserts on the way, so a side that is zero, not a power of two or
-    // out of range would compile a header pointing the TA at nonsense.
-    return texture.vram != nullptr &&
-           texture.paddedSide >= renderer_detail::kMinSpriteTextureSide &&
-           texture.paddedSide <= renderer_detail::kMaxSpriteTextureSide &&
-           isPowerOfTwo(texture.paddedSide);
-}
-
-/// True when the source rectangle is a nondegenerate sub-rectangle of the
-/// padded texture. Written as positive comparisons so a NaN falls through to
-/// false rather than passing a negated test.
-bool validSourceSpan(float low, float high) noexcept {
-    return low >= 0.0f && high <= 1.0f && low < high;
-}
-
-bool validSprite(const AuthoredSpriteState& sprite) noexcept {
-    if (sprite.texture == nullptr ||
-        !validSpriteTexture(*static_cast<const SpriteTexture*>(sprite.texture))) {
-        return false;
-    }
-    if (!std::isfinite(sprite.destinationX) || !std::isfinite(sprite.destinationY) ||
-        !(sprite.destinationWidth > 0.0f) || !(sprite.destinationHeight > 0.0f)) {
-        return false;
-    }
-    // The far edges are what the raster stage actually emits, and a finite
-    // origin plus a finite extent can still overflow to infinity.
-    if (!std::isfinite(sprite.destinationX + sprite.destinationWidth) ||
-        !std::isfinite(sprite.destinationY + sprite.destinationHeight)) {
-        return false;
-    }
-    return validSourceSpan(sprite.sourceU0, sprite.sourceU1) &&
-           validSourceSpan(sprite.sourceV0, sprite.sourceV1) && finite(sprite.tint);
-}
-
-bool validSpriteFrame(const SpriteFrame& sprites) noexcept {
-    if (sprites.spriteCount > kMaxSprites) {
-        return false;
-    }
-    for (std::uint16_t i = 0; i < sprites.spriteCount; ++i) {
-        if (!validSprite(sprites.sprites[i])) {
-            return false;
-        }
-    }
-    return true;
-}
+/// An empty overlay, shared by the diagnostic renderFrame() overloads.
+constexpr AuthoredOverlayFrame kEmptyOverlayFrame{};
 
 renderer_detail::VertexPacket makeSpriteVertexPacket(float x,
                                                      float y,
@@ -230,6 +178,18 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
         return false;
     }
 
+    // Fixed-capacity overlay workspaces are tens of KiB combined. Keep them
+    // off the small KOS stack and reuse them without per-frame allocation.
+    std::unique_ptr<AuthoredOverlayFrame> compatibilityOverlay(
+        new (std::nothrow) AuthoredOverlayFrame());
+    std::unique_ptr<RoundedRectGeometry> roundedRectScratch(
+        new (std::nothrow) RoundedRectGeometry());
+    if (!compatibilityOverlay || !roundedRectScratch) {
+        dbglog(DBG_ERROR, "DreamcastRasterRenderer: overlay workspace allocation failed\n");
+        renderer_detail::setDiagnosticError(kDiagnosticErrorRendererInitialization);
+        return false;
+    }
+
     // KOS's pvr_default_params has 512 KiB of vertex storage and enables the
     // opaque and translucent lists. Copy it, then keep those two with a small
     // fixed buffer suitable for this renderer: index 0 is opaque polygons and
@@ -301,6 +261,8 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
     pvr_poly_compile(reinterpret_cast<pvr_poly_hdr_t*>(cachedHeader_), &context);
 
     config_ = config;
+    compatibilityOverlay_ = std::move(compatibilityOverlay);
+    roundedRectScratch_ = std::move(roundedRectScratch);
     diagnostics_ = RendererDiagnostics{};
     frameCounter_ = 0;
     initialized_ = true;
@@ -315,19 +277,15 @@ bool DreamcastRasterRenderer::initialize(const VideoState& video,
 }
 
 bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry) noexcept {
-    return renderFrame(geometry, kEmptySpriteFrame, kDiagnosticClearColor);
+    return renderFrame(geometry, kEmptyOverlayFrame, kDiagnosticClearColor);
 }
 
 bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
                                           const ColorRgba& clearColor) noexcept {
-    return renderFrame(geometry, kEmptySpriteFrame, clearColor);
+    return renderFrame(geometry, kEmptyOverlayFrame, clearColor);
 }
 
-bool DreamcastRasterRenderer::submitSprites(const SpriteFrame& sprites) noexcept {
-    for (std::uint16_t index = 0; index < sprites.spriteCount; ++index) {
-        // Submission order is the authored order; the translucent list is not
-        // autosorted, so the last sprite submitted is the one on top.
-        const AuthoredSpriteState& sprite = sprites.sprites[index];
+bool DreamcastRasterRenderer::submitTexturedQuad(const AuthoredSpriteState& sprite) noexcept {
         const SpriteTexture& texture = *static_cast<const SpriteTexture*>(sprite.texture);
 
         // Every sprite binds its own texture, so unlike the opaque pass there
@@ -372,22 +330,86 @@ bool DreamcastRasterRenderer::submitSprites(const SpriteFrame& sprites) noexcept
 
         const float left = sprite.destinationX;
         const float top = sprite.destinationY;
-        const float right = left + sprite.destinationWidth;
-        const float bottom = top + sprite.destinationHeight;
+        const float xx = sprite.destinationWidth * sprite.rotationCos;
+        const float xy = sprite.destinationWidth * sprite.rotationSin;
+        const float yx = -sprite.destinationHeight * sprite.rotationSin;
+        const float yy = sprite.destinationHeight * sprite.rotationCos;
         const std::uint32_t tint = renderer_detail::packColor(sprite.tint);
         // Four vertices as one strip: top-left, top-right, bottom-left,
         // bottom-right. That is the two triangles of the quad.
         const renderer_detail::VertexPacket corners[4] = {
             makeSpriteVertexPacket(left, top, sprite.sourceU0, sprite.sourceV0, tint, false),
-            makeSpriteVertexPacket(right, top, sprite.sourceU1, sprite.sourceV0, tint, false),
-            makeSpriteVertexPacket(left, bottom, sprite.sourceU0, sprite.sourceV1, tint, false),
-            makeSpriteVertexPacket(right, bottom, sprite.sourceU1, sprite.sourceV1, tint, true),
+            makeSpriteVertexPacket(left + xx, top + xy, sprite.sourceU1, sprite.sourceV0, tint, false),
+            makeSpriteVertexPacket(left + yx, top + yy, sprite.sourceU0, sprite.sourceV1, tint, false),
+            makeSpriteVertexPacket(left + xx + yx, top + xy + yy, sprite.sourceU1, sprite.sourceV1, tint, true),
         };
         for (const renderer_detail::VertexPacket& corner : corners) {
             if (pvr_prim(&corner, sizeof(corner)) != 0) {
                 return false;
             }
         }
+    return true;
+}
+
+bool DreamcastRasterRenderer::submitGlyphQuad(const AuthoredGlyphState& glyph) noexcept {
+    const AuthoredSpriteState quad{glyph.destinationX, glyph.destinationY,
+                                   glyph.destinationWidth, glyph.destinationHeight,
+                                   glyph.sourceU0, glyph.sourceV0, glyph.sourceU1,
+                                   glyph.sourceV1, glyph.texture, glyph.tint};
+    return submitTexturedQuad(quad);
+}
+
+bool DreamcastRasterRenderer::submitRoundedRect(const AuthoredRoundedRectState& rect) noexcept {
+    if (!roundedRectScratch_ ||
+        tessellateRoundedRect(rect, *roundedRectScratch_) != RoundedRectGeometryStatus::Ok) {
+        return false;
+    }
+    const RoundedRectGeometry& mesh = *roundedRectScratch_;
+    pvr_poly_cxt_t context{};
+    pvr_poly_cxt_col(&context, PVR_LIST_TR_POLY);
+    context.gen.culling = PVR_CULLING_NONE;
+    context.gen.clip_mode = PVR_USERCLIP_DISABLE;
+    context.gen.alpha = true;
+    context.depth.comparison = PVR_DEPTHCMP_ALWAYS;
+    context.depth.write = PVR_DEPTHWRITE_DISABLE;
+    pvr_poly_hdr_t header{};
+    pvr_poly_compile(&header, &context);
+    if (pvr_prim(&header, sizeof(header)) != 0) return false;
+    for (std::uint16_t i = 0; i < mesh.triangleCount; ++i) {
+        const RoundedRectTriangle& triangle = mesh.triangles[i];
+        for (std::uint8_t vertex = 0; vertex < 3; ++vertex) {
+            const RoundedRectVertex& source = triangle.vertices[vertex];
+            renderer_detail::VertexPacket packet{};
+            packet.flags = vertex == 2 ? renderer_detail::kVertexCommandEol
+                                       : renderer_detail::kVertexCommand;
+            packet.x = source.x;
+            packet.y = source.y;
+            packet.z = renderer_detail::kSpriteDepth;
+            packet.u = packet.v = 0.0f;
+            packet.argb = renderer_detail::packColor(source.color);
+            packet.oargb = 0;
+            if (pvr_prim(&packet, sizeof(packet)) != 0) return false;
+        }
+    }
+    return true;
+}
+
+bool DreamcastRasterRenderer::submitOverlay(const AuthoredOverlayFrame& overlay) noexcept {
+    for (std::uint16_t i = 0; i < overlay.orderCount; ++i) {
+        const AuthoredOverlayOrder& item = overlay.order[i];
+        bool submitted = false;
+        switch (item.kind) {
+        case AuthoredOverlayKind::Sprite:
+            submitted = submitTexturedQuad(overlay.sprites.sprites[item.index]);
+            break;
+        case AuthoredOverlayKind::RoundedRect:
+            submitted = submitRoundedRect(overlay.roundedRects[item.index]);
+            break;
+        case AuthoredOverlayKind::Glyph:
+            submitted = submitGlyphQuad(overlay.glyphs[item.index]);
+            break;
+        }
+        if (!submitted) return false;
     }
     return true;
 }
@@ -411,8 +433,31 @@ bool DreamcastRasterRenderer::waitIdle() noexcept {
 bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
                                           const SpriteFrame& sprites,
                                           const ColorRgba& clearColor) noexcept {
-    if (!initialized_ || !validGeometryFrame(geometry) || !validSpriteFrame(sprites) ||
-        !finite(clearColor)) {
+    if (sprites.spriteCount > kMaxSprites) {
+        renderer_detail::setDiagnosticError(kDiagnosticErrorSubmission);
+        return false;
+    }
+
+    if (!compatibilityOverlay_) {
+        renderer_detail::setDiagnosticError(kDiagnosticErrorSubmission);
+        return false;
+    }
+    compatibilityOverlay_->sprites.spriteCount = 0;
+    compatibilityOverlay_->roundedRectCount = 0;
+    compatibilityOverlay_->glyphCount = 0;
+    compatibilityOverlay_->orderCount = 0;
+    compatibilityOverlay_->sprites = sprites;
+    compatibilityOverlay_->orderCount = sprites.spriteCount;
+    for (std::uint16_t i = 0; i < sprites.spriteCount; ++i)
+        compatibilityOverlay_->order[i] = {AuthoredOverlayKind::Sprite, static_cast<std::uint8_t>(i)};
+    return renderFrame(geometry, *compatibilityOverlay_, clearColor);
+}
+
+bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
+                                          const AuthoredOverlayFrame& overlay,
+                                          const ColorRgba& clearColor) noexcept {
+    if (!initialized_ || !validGeometryFrame(geometry) ||
+        !renderer_detail::validOverlayFrame(overlay) || !finite(clearColor)) {
         renderer_detail::setDiagnosticError(kDiagnosticErrorSubmission);
         return false;
     }
@@ -466,15 +511,15 @@ bool DreamcastRasterRenderer::renderFrame(const GeometryFrame& geometry,
     }
     listStarted = false;
 
-    // The sprite overlay is a second list inside the same scene. It is opened
+    // The ordered 2D overlay is a second list inside the same scene. It is opened
     // only when there is something to draw: an empty pass would still cost a
     // list registration for nothing.
-    if (ok && sprites.spriteCount != 0) {
+    if (ok && overlay.orderCount != 0) {
         if (pvr_list_begin(PVR_LIST_TR_POLY) != 0) {
             dbglog(DBG_ERROR, "DreamcastRasterRenderer: translucent pvr_list_begin failed\n");
             ok = false;
         } else {
-            ok = submitSprites(sprites);
+            ok = submitOverlay(overlay);
             if (pvr_list_finish() != 0) {
                 ok = false;
             }

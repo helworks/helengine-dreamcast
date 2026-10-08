@@ -58,11 +58,10 @@ public static class DreamcastPlatformDefinitionFactory {
             new("release", "Release", "Dreamcast release build", DreamcastMaterialSchemaIds.StandardGraphicsProfileId, "default", buildSettings)
         ];
 
-        // One capability only: "texture", capped to 64 pixels per axis. Deliberately no separate
-        // "font-atlas-texture" capability: text is out of scope for this milestone and there is no glyph
-        // renderer to justify the larger cap N64 uses for its font atlases. The editor build graph falls
-        // generated font-atlas work items back onto this "texture" capability when no font-atlas capability is
-        // declared, so both authored icons and the two font atlases are cooked through the same 64 pixel cap.
+        // Ordinary textures keep the 64-pixel cap used by sprites. Font atlases
+        // need their own larger setting so glyph metrics are not crushed by the
+        // icon limit; the editor propagates these settings while transforming
+        // the FontAsset's atlas and metrics.
         PlatformAssetCookCapabilityDefinition[] assetCookCapabilities = [
             new PlatformAssetCookCapabilityDefinition(
                 "texture",
@@ -70,6 +69,13 @@ public static class DreamcastPlatformDefinitionFactory {
                 PlatformAssetCookOwnershipKind.BuilderOwned,
                 "dc-texture",
                 CreateDefaultSerializedTextureCookSettings(),
+                CreateTextureFormatCapabilities()),
+            new PlatformAssetCookCapabilityDefinition(
+                "font-atlas-texture",
+                "runtime-texture",
+                PlatformAssetCookOwnershipKind.BuilderOwned,
+                "dc-texture",
+                CreateDefaultSerializedFontAtlasCookSettings(),
                 CreateTextureFormatCapabilities())
         ];
 
@@ -87,9 +93,10 @@ public static class DreamcastPlatformDefinitionFactory {
                 new PlatformComponentSupportRule("helengine.AmbientLightComponent", PlatformComponentSupportKind.Transform, "Dreamcast v0.3 supports one summed ambient color.", string.Empty),
                 new PlatformComponentSupportRule("helengine.PointLightComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast lighting supports directional and ambient lights only.", "Remove point lights or exclude them on Dreamcast."),
                 new PlatformComponentSupportRule("helengine.SpotLightComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast lighting supports directional and ambient lights only.", "Remove spot lights or exclude them on Dreamcast."),
+                new PlatformComponentSupportRule("helengine.ViewportComponent", PlatformComponentSupportKind.Transform, "Reference-canvas viewports scale screen-space sprite layouts to the Dreamcast output.", "Keep the viewport component that owns the authored overlay."),
                 new PlatformComponentSupportRule("helengine.SpriteComponent", PlatformComponentSupportKind.Transform, "Authored sprites draw in the translucent overlay list.", "Keep sprite components; they render as textured quads."),
-                new PlatformComponentSupportRule("helengine.TextComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast has no font atlas or glyph layout yet.", "Remove text components or exclude them for dc."),
-                new PlatformComponentSupportRule("helengine.RoundedRectComponent", PlatformComponentSupportKind.Unsupported, "Dreamcast draws no rounded-rectangle primitive.", "Remove rounded rectangle components or exclude them for dc.")
+                new PlatformComponentSupportRule("helengine.TextComponent", PlatformComponentSupportKind.Transform, "Dreamcast draws text from cooked FontAsset atlases with bounded glyph layout.", "Keep text within the Dreamcast font-atlas and plain-text feature limits."),
+                new PlatformComponentSupportRule("helengine.RoundedRectComponent", PlatformComponentSupportKind.Transform, "Dreamcast draws filled and bordered rounded rectangles in the 2D overlay.", "Use finite bounds, radius, border and supported corner flags.")
             ],
             [codegen],
             [new PlatformStorageProfileDefinition("romfs-package", "ROMFS Package", PlatformStorageProfileKind.LooseFiles, "dc-romfs-package", false)],
@@ -105,6 +112,15 @@ public static class DreamcastPlatformDefinitionFactory {
     static string CreateDefaultSerializedTextureCookSettings() {
         return DreamcastTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
             MaxResolution = 64,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8
+        });
+    }
+
+    /// <summary>Creates the Dreamcast font-atlas settings while retaining enough glyph resolution for authored text.</summary>
+    static string CreateDefaultSerializedFontAtlasCookSettings() {
+        return DreamcastTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+            MaxResolution = 512,
             ColorFormat = TextureAssetColorFormat.Rgba32,
             AlphaPrecision = TextureAssetAlphaPrecision.A8
         });

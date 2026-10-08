@@ -34,7 +34,10 @@ public sealed class DreamcastNativeBuildExecutor : IDreamcastNativeBuildExecutor
         }
 
         string powershell = Environment.GetEnvironmentVariable("HELENGINE_DC_POWERSHELL") ?? "pwsh";
-        string buildId = $"authored-{Guid.NewGuid():N}";
+        string fixedBuildRoot = Environment.GetEnvironmentVariable("HELENGINE_DC_BUILD_RUN_ROOT");
+        bool reuseBuildDirectory = !string.IsNullOrWhiteSpace(fixedBuildRoot);
+        string outputRoot = reuseBuildDirectory ? Path.GetDirectoryName(Path.GetFullPath(fixedBuildRoot))! : request.OutputRoot;
+        string buildId = reuseBuildDirectory ? Path.GetFileName(Path.GetFullPath(fixedBuildRoot)) : $"authored-{Guid.NewGuid():N}";
         ProcessStartInfo startInfo = new(powershell) {
             WorkingDirectory = repositoryRoot,
             UseShellExecute = false,
@@ -42,6 +45,8 @@ public sealed class DreamcastNativeBuildExecutor : IDreamcastNativeBuildExecutor
             RedirectStandardError = false
         };
         startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-ExecutionPolicy");
+        startInfo.ArgumentList.Add("Bypass");
         startInfo.ArgumentList.Add("-File");
         startInfo.ArgumentList.Add(buildScript);
         startInfo.ArgumentList.Add("-BuildId");
@@ -49,13 +54,18 @@ public sealed class DreamcastNativeBuildExecutor : IDreamcastNativeBuildExecutor
         startInfo.ArgumentList.Add("-Mode");
         startInfo.ArgumentList.Add("Authored");
         startInfo.ArgumentList.Add("-OutputRoot");
-        startInfo.ArgumentList.Add(request.OutputRoot);
+        startInfo.ArgumentList.Add(outputRoot);
+        if (reuseBuildDirectory) startInfo.ArgumentList.Add("-ReuseBuildDirectory");
         startInfo.ArgumentList.Add("-GeneratedCoreRoot");
         startInfo.ArgumentList.Add(request.GeneratedCoreCppRootPath);
         startInfo.ArgumentList.Add("-ContentRoot");
         startInfo.ArgumentList.Add(contentRoot);
         startInfo.ArgumentList.Add("-CatalogRoot");
         startInfo.ArgumentList.Add(catalogRoot);
+        if (!string.IsNullOrWhiteSpace(request.NativeObjectCacheRoot)) {
+            startInfo.ArgumentList.Add("-NativeObjectCacheRoot");
+            startInfo.ArgumentList.Add(request.NativeObjectCacheRoot);
+        }
 
         using Process process = new() { StartInfo = startInfo, EnableRaisingEvents = true };
         if (!process.Start()) {
@@ -74,7 +84,7 @@ public sealed class DreamcastNativeBuildExecutor : IDreamcastNativeBuildExecutor
             throw new InvalidOperationException($"Dreamcast native build failed with exit code {process.ExitCode}.");
         }
 
-        string buildRoot = Path.Combine(request.OutputRoot, buildId);
+        string buildRoot = Path.Combine(outputRoot, buildId);
         if (!File.Exists(Path.Combine(buildRoot, "helengine_dc.elf")) ||
             !File.Exists(Path.Combine(buildRoot, "helengine_dc.map")) ||
             !File.Exists(Path.Combine(buildRoot, "build-manifest.txt"))) {

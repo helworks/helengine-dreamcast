@@ -320,3 +320,69 @@ read.
 For scale, the demodisc package's own cooked textures at the 64 pixel cap are
 30 textures plus 2 font atlases at `64 * 64 * 2` = 8,192 bytes each, about
 262,144 bytes in total, roughly six per cent of the limit.
+
+## Dreamcast 2D sprite evidence: visible in Flycast
+
+This 2026-09-23 run supersedes the earlier provisional statement above that no
+sprite-carrying emulator run existed. The isolated `cube_test` fixture regenerated
+the current `ConsoleCameraLightInstructions` Blueprint, retained its viewport
+and three sprite components, and removed only text and rounded rectangles (both
+remain out of scope). No shared DemoDisc or engine checkout was changed.
+
+| Evidence | Result |
+|---|---|
+| Build | `authored-f7e761f260a649dd9c22fabbc9ffe90b`; ELF SHA-256 `88b5c2110d57f4b249e73564ee43d4d134456914696dbac9f13f074e7d15f90d`; artifacts under `.dreamcast/revalidation/cube-test-sprites9/`. |
+| Flycast verifier | PASS, frames 120 and 180, `lights=1 sprites=3 diag_error=0 sceneReady=1 frameCount=241 cleanShutdown=1`; free VRAM reported after startup: 6,835,848 bytes. |
+| Pixel proof, frame 120 (640x480 RGB capture) | Against the no-sprite control frame, the icons occupy `(22,334)-(45,357)`, `(48,334)-(66,357)`, `(24,369)-(46,391)`. Samples: `(34,346)` control `#6094E8` -> sprite `#203440`; `(57,346)` control `#6898F0` -> sprite `#283450`; `(35,380)` control `#6898F0` -> sprite `#6894F0`. There are 1,260 changed pixels inside those icon bounds and 534 within the spinning cube bounds `(251,175)-(378,303)`; no other pixels changed, so the background is identical while the cube's animation phase differs. |
+| Captures | `frame-0120.raw` SHA-256 `3c35a5f6438f25be87c555fe9251b2f8feb6f6ef9e41d3039eb57b191d21a671`; `frame-0180.raw` SHA-256 `cc716c45aade62b22198f4370a6efb9f4d958fbd3673932a50a75a8dfb32b9f3`; PNG previews and complete verifier report are alongside them. |
+
+The new ELF is also open in a visible Flycast window from this checkout's
+`.dreamcast` profile. This validates sprite texture cooking, upload and
+submission in the emulator; it does not claim font/text rendering, rounded
+rectangles, physical hardware behavior or pixel-perfect parity with other
+platforms.
+
+## Dreamcast rounded rectangles and text evidence: capture-free Flycast gate
+
+This 2026-09-25 run supersedes the preceding sprite-only scope statement for
+rounded rectangles and basic text. It used a repository-local `cube_test`
+fixture with the authored camera, lit cube, three instruction sprites, two
+rounded rectangles and a text label. The verifier ran with `-CaptureFrames ''`;
+no framebuffer was captured or parsed.
+
+| Evidence | Result |
+|---|---|
+| Build | `authored-rounded-text`; ELF SHA-256 `017f2e0ffc344f44c5bade7bc7c361179a251e51821e80a20bb901a35c3f0c6a`; all artifacts under `.dreamcast/rounded-rect-text/graph-13/`. |
+| Flycast verifier | PASS, `Result=success`; `frameCount=241`, clean shutdown, `au_error=0`, `diag_error=0`. |
+| Authored counts | `lights=1 sprites=6 roundedRects=2 glyphs=22`; gate required at least 3 sprites, 1 rounded rectangle and 1 glyph. Text glyph submissions are counted separately from sprite submissions. |
+| Capture policy | `-CaptureFrames ''`; evidence root `.dreamcast/rounded-rect-text/verify-final/` contains logs and textual probe/report data only. No `.raw`, PNG or other frame image was produced or inspected. |
+| Runtime correction | The first text-enabled probe faulted while laying out glyphs. `GlyphLayoutFrame{}` aggregate resets created a large temporary on the constrained SH4 stack; resets now clear only the active glyph count. Large overlay/tessellation scratch records are also retained off-stack and reused. The final non-instrumented run completes. |
+| Visible handoff | Final ELF launched with `launch_in_emulator.ps1 -Visible` from the repo-local Flycast profile; process left running for direct inspection. |
+
+This confirms successful scene loading, sprite/rectangle/text gathering,
+ordered PVR submission and clean teardown in Flycast. Pixel appearance remains
+for the user to inspect; this run makes no screenshot-based visual claim, and
+physical Dreamcast hardware remains untested.
+
+## Font staging hash preservation (2026-10-07)
+
+`DreamcastPlatformAssetBuilder` now verifies manifest content hashes during
+staging before rescaling the staged FontAsset metrics to the cooked atlas.
+Rescaling leaves the editor's package-source fonts unchanged, considers only
+declared staged fonts, and preserves staged file and directory timestamps.
+
+The regression `BuildAsyncScalesStagedFontsWithoutChangingManifestInputs`
+failed before the correction with `Cooked artifact hash mismatch for
+'fonts/sample.hefont'`. It now builds the same request twice through a recording
+native executor, verifies the original source bytes, confirms the staged
+16x8-to-8x4 atlas metrics, and ignores an invalid undeclared font on the repeat
+build. The full managed Dreamcast builder suite passed **109/109** tests against
+shared engine revision `9c9bbbf2c58da7e16751a9fa1c473656bc1eacbb`.
+
+Command: `dotnet test builder.tests/helengine.dreamcast.builder.tests.csproj
+--artifacts-path C:/dev/helworks/builds/helengine-dc/coord-20261007/artifacts`.
+Before/after TRX evidence is under
+`C:/dev/helworks/builds/helengine-dc/coord-20261007/tests-before/before.trx` and
+`C:/dev/helworks/builds/helengine-dc/coord-20261007/tests-after/after.trx`.
+This validates managed cooking and staging; no native compiler or emulator was
+run for this correction.

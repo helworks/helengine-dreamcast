@@ -43,7 +43,7 @@ public sealed class DreamcastStartupCatalogWriter {
         string headerPath = Path.Combine(catalogRoot, "dc_runtime_scene_catalog.hpp");
         string sourcePath = Path.Combine(catalogRoot, "dc_runtime_scene_catalog.cpp");
         Encoding encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-        File.WriteAllText(headerPath, "#pragma once\n\n#include <cstddef>\n\nstruct HEDcSceneCatalogEntry {\n    const char* sceneId;\n    const char* cookedRelativePath;\n};\n\nextern \"C\" const char* he_dc_startup_scene_id();\nextern \"C\" const HEDcSceneCatalogEntry* he_dc_scene_catalog_entries(std::size_t* count);\n", encoding);
+        WriteIfChanged(headerPath, "#pragma once\n\n#include <cstddef>\n\nstruct HEDcSceneCatalogEntry {\n    const char* sceneId;\n    const char* cookedRelativePath;\n};\n\nextern \"C\" const char* he_dc_startup_scene_id();\nextern \"C\" const HEDcSceneCatalogEntry* he_dc_scene_catalog_entries(std::size_t* count);\n", encoding);
 
         StringBuilder source = new();
         source.AppendLine("#include \"dc_runtime_scene_catalog.hpp\"");
@@ -64,7 +64,12 @@ public sealed class DreamcastStartupCatalogWriter {
         source.AppendLine("    if (count != nullptr) { *count = sizeof(kEntries) / sizeof(kEntries[0]); }");
         source.AppendLine("    return kEntries;");
         source.AppendLine("}");
-        File.WriteAllText(sourcePath, source.ToString(), encoding);
+        WriteIfChanged(sourcePath, source.ToString(), encoding);
+    }
+
+    static void WriteIfChanged(string path, string content, Encoding encoding) {
+        if (File.Exists(path) && string.Equals(File.ReadAllText(path, encoding), content, StringComparison.Ordinal)) return;
+        File.WriteAllText(path, content, encoding);
     }
 
     static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);

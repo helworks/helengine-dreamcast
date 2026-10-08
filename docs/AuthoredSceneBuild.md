@@ -21,6 +21,16 @@ records the evidence rows.
   translucent materials are rejected at cook time and again at build time.
   Both `unlit` (flat vertex color) and `lit` lighting modes are supported
   (`lighting-mode` field, cooked to the material's `Lit` flag).
+- Authored 2D overlays share one painter-order stream: up to 64 sprites, 64
+  rounded rectangles, and 255 text glyphs per frame. Sprites and glyphs use
+  cooked ARGB4444 textures; text uses staged `FontAsset` metrics and a cooked
+  atlas whose maximum side is 256 pixels. Rounded rectangles support selected
+  rounded corners, fill and border. Text supports UTF-8 glyph lookup, line
+  breaks, alignment and wrapping; outline and shadow passes, rotated overlays,
+  and general UI interactions remain unsupported. Referenced texture and font
+  content is included in ROMFS; ordinary source textures retain their
+  64-pixel cap. Screen-space subtrees may use a reference-canvas
+  `ViewportComponent`.
 - Lighting (v0.3): a lit material shades with per-vertex Lambertian diffuse
   only, no specular. For each vertex, the authored normal is transformed to
   world space and combined with every enabled ambient and directional light
@@ -52,8 +62,8 @@ records the evidence rows.
   scale is fine; mirrored or singular transforms are rejected per frame.
 - Budgets: one MiB of embedded cooked content, eight MiB resident ELF span
   including BSS and ROMFS, at least four MiB free heap after startup.
-- Start on controller port 0 exits the game cleanly. No other input, no audio,
-  physics, scripts, UI, animation, textures or scene switching.
+- Start on controller port 0 exits the game cleanly. No other input, audio,
+  physics, scripts, UI interaction, animation or scene switching is supported.
 
 ## Pipeline
 
@@ -64,7 +74,8 @@ records the evidence rows.
 2. `DreamcastPlatformAssetBuilder.BuildAsync` validates the manifest, resolves
    each scene to its `cooked-relative-path` artifact, stages only declared
    artifacts into a fresh `dreamcast-build-<guid>/content` tree, validates the
-   staged scene/model/material with the normal deserializers, and writes the
+   staged scene/model/material/font with the normal deserializers and checks
+   font-atlas dimensions against their cooked textures, then writes the
    external startup catalog (`dc_runtime_scene_catalog.hpp/.cpp`).
 3. `DreamcastNativeBuildExecutor` runs `scripts/build.ps1 -Mode Authored` from
    `HELENGINE_DC_REPOSITORY_ROOT` with the PowerShell 7 host named by
@@ -112,9 +123,12 @@ pwsh -NoProfile -File "$dcRoot\scripts\verify-authored-scene.ps1" `
 
 The verifier checks the manifest and ELF hash first, resolves the diagnostic
 symbols with the pinned `sh-elf-nm`, runs Flycast hidden with a Lua probe,
-captures raw RGB565 frames through the 32-bit VRAM aperture at the requested
-loop frames, injects Start, and requires the runtime probe (status 5, stage 6)
-and authored snapshot (stage 9, error 0) terminal states. `-NoController`
+optionally captures raw RGB565 frames through the 32-bit VRAM aperture at the
+requested loop frames, injects Start, and requires the runtime probe (status 5,
+stage 6) and authored snapshot (stage 9, error 0) terminal states. Pass
+`-CaptureFrames ''` to skip framebuffer capture and pixel parsing entirely;
+`-MinimumRoundedRects` and `-MinimumGlyphs` gate the v4 authored counters.
+`-NoController`
 configures all four maple ports as absent and requires the frame counter to
 reach `-StartAfterFrames` instead. `-StartAfterFrames 3600` produces a sixty
 second run.
@@ -141,18 +155,22 @@ then runs `Core::Update(delta)`, `Core::Draw()`, `Core::CompleteFrameBoundary()`
 per frame with a monotonic delta bounded to 100 ms. `Core::Draw` reaches
 `DreamcastRenderManager3D::Draw`, which gathers the camera and its ordered
 render queue, validates everything through the generated-header-free
-`AuthoredFrameAssembler`, runs the bounded geometry pipeline and presents one
-PVR scene with the authored clear color. On Start the host drains the PVR,
+`AuthoredFrameAssembler`, and gathers sprites, rounded rectangles and text
+through `DreamcastRenderManager2D`. The renderer runs the bounded geometry
+pipeline, then submits the opaque scene followed by the mixed-order translucent
+overlay in one PVR frame. Large overlay and glyph-layout workspaces are
+allocated once and reused; resetting a glyph frame clears its live count
+without creating a large stack temporary. On Start the host drains the PVR,
 unloads the scene, verifies zero owned references, disposes Core, stops PVR and
 video, and publishes the terminal snapshots.
 
 Three diagnostic symbols are exported and resolved per ELF: the v0.1
 `helengine_dreamcast_diagnostics` renderer snapshot, the runtime probe
 `helengine_dreamcast_runtime_probe`, and the authored snapshot
-`helengine_dreamcast_authored_snapshot` (magic `HEAS`, version 2 as of v0.3:
-stage, error, scene digest, camera/drawable counts, triangle counts, presented
-frames, first presented frame, clear ARGB, checked free heap, loop frames,
-gathered directional light count).
+`helengine_dreamcast_authored_snapshot` (magic `HEAS`, version 4: stage, error,
+scene digest, camera/drawable counts, triangle counts, presented frames, first
+presented frame, clear ARGB, checked free heap, loop frames, and packed 8-bit
+counts for lights, sprites, rounded rectangles and glyphs).
 
 ## Failure behaviour
 
@@ -214,9 +232,10 @@ pwsh -NoProfile -File "$dcRoot\scripts\verify-authored-scene.ps1" -BuildRoot "$v
     -FlycastPath C:\dev\helworks\emus\dreamcast\flycast.exe -EvidenceRoot "$v02\cube-test\verify-N"
 ```
 
-The demodisc package declares 30 instruction textures and two fonts; the
-stager leaves them out because the runtime cannot load them, so the ROMFS holds
-only the scene, the engine cube model and the two dc-unlit materials. First
+The demodisc package includes many instruction textures and two fonts. The
+Dreamcast stager embeds cooked textures referenced by supported sprites and
+font atlases; unused textures stay out of the ROMFS. The basic text subset
+excludes shadow and outline effects. First
 accepted build: `v02/cube-test/graph-4/build/authored-ab183787812a49cc9573d20f1d027dd4`,
 ELF SHA-256 `57c97951e90b5994f4f13e823f2ec05d8f985c797588214b65d2ca6c45be18b1`;
 verifier PASS with frames 120 and 180 differing (spinning white cube on the

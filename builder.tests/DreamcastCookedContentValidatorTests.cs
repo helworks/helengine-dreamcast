@@ -30,11 +30,47 @@ public sealed class DreamcastCookedContentValidatorTests {
     [Fact]
     public void RejectsUnsupportedEngineComponent() {
         using TemporaryDirectory temporary = new();
-        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.SpriteComponent")])]);
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.AudioSourceComponent")])]);
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
 
-        Assert.Contains("helengine.SpriteComponent", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("helengine.AudioSourceComponent", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Authored text components are accepted alongside the required camera and mesh.</summary>
+    [Fact]
+    public void AcceptsTextComponent() {
+        using TemporaryDirectory temporary = new();
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.TextComponent")])]);
+
+        Validate(temporary.Path);
+    }
+
+    /// <summary>Authored rounded-rectangle components are accepted alongside the required camera and mesh.</summary>
+    [Fact]
+    public void AcceptsRoundedRectComponent() {
+        using TemporaryDirectory temporary = new();
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.RoundedRectComponent")])]);
+
+        Validate(temporary.Path);
+    }
+
+    /// <summary>Authored sprite components are accepted alongside the required camera and mesh.</summary>
+    [Fact]
+    public void AcceptsSpriteComponent() {
+        using TemporaryDirectory temporary = new();
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.SpriteComponent")])]);
+
+        Validate(temporary.Path);
+    }
+
+    /// <summary>Reference-canvas scaling remains active for authored screen-space sprites.</summary>
+    [Fact]
+    public void AcceptsViewportComponent() {
+        using TemporaryDirectory temporary = new();
+        Stage(temporary.Path, extraEntities: [DreamcastCookedTestContent.CreateEntity(3, true, [DreamcastCookedTestContent.CreateComponent("helengine.ViewportComponent")])]);
+
+        Validate(temporary.Path);
     }
 
     /// <summary>Project code components run inside generated Core and are accepted.</summary>
@@ -156,6 +192,33 @@ public sealed class DreamcastCookedContentValidatorTests {
         Validate(temporary.Path);
     }
 
+    /// <summary>A packaged FontAsset and its matching builder-cooked atlas are accepted in staged content.</summary>
+    [Fact]
+    public void AcceptsStagedFontAssetAndCookedAtlas() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        const string atlasPath = "cooked/fonts/test.dctex";
+        DreamcastCookedTestContent.WriteFile(temporary.Path, atlasPath, CookTexture(8, 8));
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "cooked/fonts/test.hefont", SerializeFont(atlasPath, 8, 8));
+
+        Validate(temporary.Path);
+    }
+
+    /// <summary>A font whose serialized atlas dimensions disagree with its cooked texture is rejected before runtime.</summary>
+    [Fact]
+    public void RejectsStagedFontAssetWithMismatchedAtlasDimensions() {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        const string atlasPath = "cooked/fonts/test.dctex";
+        DreamcastCookedTestContent.WriteFile(temporary.Path, atlasPath, CookTexture(8, 8));
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "cooked/fonts/test.hefont", SerializeFont(atlasPath, 7, 8));
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+
+        Assert.Contains("records a 7x8 atlas", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(atlasPath, exception.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>A cooked texture the runtime parser would refuse is rejected at build time, with its path and cause.</summary>
     [Theory]
     [InlineData(4, (ushort)2, "version")]
@@ -236,17 +299,36 @@ public sealed class DreamcastCookedContentValidatorTests {
     /// assets only; a Dreamcast cooked texture is recognized by its own magic before this branch is reached.
     /// </summary>
     [Fact]
-    public void RejectsUnsupportedStagedAssetType() {
+    public void AcceptsAdditionalCookedScene() {
         using TemporaryDirectory temporary = new();
         DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
         byte[] modelBytes = helengine.files.AssetSerializer.SerializeToBytes(DreamcastCookedTestContent.CreateModel(4, 2));
         byte[] materialBytes = helengine.files.AssetSerializer.SerializeToBytes(DreamcastCookedTestContent.CreateMaterial());
         DreamcastCookedTestContent.WriteFile(temporary.Path, "cooked/scenes/other.hasset", DreamcastCookedTestContent.SerializeScene(modelBytes, materialBytes, true, null));
 
-        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path));
+        Validate(temporary.Path);
+    }
 
-        Assert.Contains("unsupported cooked asset type", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("cooked/scenes/other.hasset", exception.Message, StringComparison.Ordinal);
+    [Fact]
+    public void AcceptsUiOnlyStartupWithLayoutAndAnimation() {
+        using TemporaryDirectory temporary = new();
+        SceneAsset scene = new() {
+            Id = "scenes/startup.helen",
+            AuthoringAssetId = "10000000000000000000000000000001",
+            RootEntities = [DreamcastCookedTestContent.CreateEntity(1, true, [
+                DreamcastCookedTestContent.CreateComponent(DreamcastCookedTestContent.CameraTypeId),
+                DreamcastCookedTestContent.CreateComponent("helengine.LayoutComponent"),
+                DreamcastCookedTestContent.CreateComponent("helengine.ScrollComponent"),
+                DreamcastCookedTestContent.CreateComponent("helengine.ClipRectComponent"),
+                DreamcastCookedTestContent.CreateComponent("helengine.AnimationPlayerComponent")])],
+            SceneSettings = new SceneSettingsAsset()
+        };
+        DreamcastCookedTestContent.WriteFile(temporary.Path, DreamcastCookedTestContent.ScenePath,
+            helengine.files.AssetSerializer.SerializeToBytes(scene));
+        AnimationClipAsset clip = new() { Duration = 2f };
+        DreamcastCookedTestContent.WriteFile(temporary.Path, "animations/menu.heanim",
+            helengine.files.AssetSerializer.SerializeToBytes(clip));
+        Validate(temporary.Path);
     }
 
     static void Validate(string root) {
@@ -257,6 +339,18 @@ public sealed class DreamcastCookedContentValidatorTests {
     static byte[] CookTexture(int width, int height) {
         using TextureAsset texture = DreamcastCookedTestContent.CreateTexture(width, height);
         return new DreamcastTextureCooker().Cook(texture);
+    }
+
+    static byte[] SerializeFont(string atlasPath, int width, int height) {
+        using FontAsset font = new(new FontInfo("fixture", 12, 4f), null,
+            new Dictionary<char, FontChar> {
+                ['A'] = new(new float4(0f, 0f, 0.5f, 0.5f), 6f, 8f, 0f, 0f)
+            }, 12f, width, height) {
+            CookedAtlasTextureRelativePath = atlasPath
+        };
+        using MemoryStream stream = new();
+        helengine.files.FontAssetBinarySerializer.Serialize(stream, font);
+        return stream.ToArray();
     }
 
     /// <summary>Stages the requested number of maximum-side cooked textures, each occupying 512 * 512 * 2 video memory bytes.</summary>

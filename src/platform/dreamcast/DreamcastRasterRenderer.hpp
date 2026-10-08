@@ -1,11 +1,13 @@
 #pragma once
 
 #include "DreamcastGeometryPipeline.hpp"
+#include "DreamcastRoundedRectGeometry.hpp"
 #include "DreamcastSpriteFrame.hpp"
 
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 namespace helengine::dreamcast {
 
@@ -191,6 +193,13 @@ struct SpriteTexture {
 
 namespace renderer_detail {
 
+/// Host-testable native-boundary validation for the complete mixed 2D pass.
+bool validOverlayFrame(const AuthoredOverlayFrame& overlay) noexcept;
+
+} // namespace renderer_detail
+
+namespace renderer_detail {
+
 /// Constant 1/w every sprite vertex carries.
 ///
 /// Sprites are a screen-space overlay, so a single depth for all four corners
@@ -224,6 +233,10 @@ public:
     bool renderFrame(const GeometryFrame& geometry,
                      const SpriteFrame& sprites,
                      const ColorRgba& clearColor) noexcept;
+    /// Presents sprites, rounded shapes, and font glyphs in their shared painter order.
+    bool renderFrame(const GeometryFrame& geometry,
+                     const AuthoredOverlayFrame& overlay,
+                     const ColorRgba& clearColor) noexcept;
     /// Blocks until the PVR has finished the last submitted scene, so owned
     /// geometry can be released without a pending render referencing it.
     bool waitIdle() noexcept;
@@ -231,10 +244,15 @@ public:
     void shutdown() noexcept;
 
 private:
-    /// Submits every sprite into an already opened translucent list.
-    bool submitSprites(const SpriteFrame& sprites) noexcept;
+    /// Submits every ordered overlay record into an already opened translucent list.
+    bool submitOverlay(const AuthoredOverlayFrame& overlay) noexcept;
+    bool submitTexturedQuad(const AuthoredSpriteState& quad) noexcept;
+    bool submitGlyphQuad(const AuthoredGlyphState& quad) noexcept;
+    bool submitRoundedRect(const AuthoredRoundedRectState& rect) noexcept;
 
     bool initialized_ = false;
+    std::unique_ptr<AuthoredOverlayFrame> compatibilityOverlay_;
+    std::unique_ptr<RoundedRectGeometry> roundedRectScratch_;
     RendererConfig config_{};
     RendererDiagnostics diagnostics_{};
     std::uint32_t frameCounter_ = 0;
