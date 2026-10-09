@@ -1,4 +1,5 @@
 #include "platform/dreamcast/DreamcastTextureFormat.hpp"
+#include "platform/dreamcast/DreamcastPaletteAllocator.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -50,7 +51,7 @@ void CorruptTexturesAreRejectedSpecifically() {
     }
     {
         std::vector<std::uint8_t> bytes = makeTexture(4, 3, 2);
-        bytes[4] = 2;
+        bytes[4] = 3;
         EXPECT(parseCookedTexture(bytes.data(), bytes.size(), header) == CookedTextureStatus::BadVersion);
     }
     {
@@ -87,6 +88,34 @@ void CorruptTexturesAreRejectedSpecifically() {
 int main() {
     ValidTextureParses();
     CorruptTexturesAreRejectedSpecifically();
+    // Independently calculated sizes for an 8x8 PAL4, PAL8, mipmapped RGB565 and VQ mip chain.
+    const unsigned flags[] = {5, 6, 17, 26};
+    const unsigned payloads[] = {32, 64, 192, 2080};
+    const unsigned palettes[] = {16, 256, 0, 0};
+    for (unsigned i = 0; i < 4; ++i) {
+        auto bytes = makeTexture(8, 7, 5);
+        bytes[4] = 2; bytes[6] = static_cast<std::uint8_t>(flags[i]);
+        const std::uint16_t palette = static_cast<std::uint16_t>(palettes[i]);
+        std::memcpy(bytes.data() + 14, &palette, 2);
+        bytes.resize(16 + payloads[i] + palettes[i] * 4);
+        CookedTextureHeader header{};
+        EXPECT(parseCookedTexture(bytes.data(), bytes.size(), header) == CookedTextureStatus::Ok);
+        EXPECT(header.pixelBytes == payloads[i]);
+        EXPECT(header.paletteEntries == palettes[i]);
+        EXPECT(header.mipmaps == ((flags[i] & 16) != 0));
+        bytes.pop_back();
+        EXPECT(parseCookedTexture(bytes.data(), bytes.size(), header) == CookedTextureStatus::SizeMismatch);
+    }
+    {
+        DreamcastPaletteAllocator allocator;
+        for (int bank = 0; bank < 4; ++bank) EXPECT(allocator.allocate(256) == bank * 256);
+        EXPECT(allocator.allocate(16) == -1);
+        allocator.release(256, 256);
+        for (int bank = 0; bank < 16; ++bank) EXPECT(allocator.allocate(16) == 256 + bank * 16);
+        EXPECT(allocator.allocate(256) == -1);
+        for (int bank = 0; bank < 16; ++bank) allocator.release(256 + bank * 16, 16);
+        EXPECT(allocator.allocate(256) == 256);
+    }
     if (failures != 0) {
         std::cerr << failures << " assertion(s) failed\n";
         return 1;

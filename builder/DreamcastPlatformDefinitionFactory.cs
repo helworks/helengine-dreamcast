@@ -127,16 +127,10 @@ public static class DreamcastPlatformDefinitionFactory {
     }
 
     /// <summary>
-    /// Creates the Dreamcast texture format capability set: one straight RGBA source format with opaque or eight-bit alpha.
+    /// Creates the Dreamcast texture capabilities for native pixel types, mipmaps, VQ and linear storage.
     /// </summary>
     /// <returns>Dreamcast texture format capabilities.</returns>
     static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
-        return new PlatformTextureFormatCapabilityDefinition(
-            [TextureAssetColorFormat.Rgba32.ToString()],
-            [TextureAssetAlphaPrecision.Opaque, TextureAssetAlphaPrecision.A8],
-            [
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.Opaque),
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.A8)
-            ]);
+        return DreamcastTextureFormatCatalog.CreateCapabilities();
     }
 }

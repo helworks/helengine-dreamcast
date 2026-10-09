@@ -7,6 +7,11 @@ namespace helengine.dreamcast.builder;
 /// and square padding reduces the reorder to a plain bit interleave.
 /// </summary>
 public sealed class DreamcastTextureCooker {
+    /// <summary>Cooks a published native format, preserving the historical version-one payload for Rgba32 settings.</summary>
+    public byte[] Cook(helengine.TextureAsset asset, helengine.editor.TextureAssetProcessorSettings settings) {
+        if (settings == null) throw new ArgumentNullException(nameof(settings));
+        return settings.ColorFormatId == "Rgba32" ? Cook(asset) : new DreamcastNativeTextureCooker().Cook(asset, settings);
+    }
     /// <summary>Cooks one texture asset into dc-texture-v1 bytes.</summary>
     /// <param name="asset">Engine-cooked source texture.</param>
     /// <returns>Header followed by twiddled ARGB4444 pixels.</returns>
@@ -63,8 +68,8 @@ public sealed class DreamcastTextureCooker {
         if (asset.ColorFormat == helengine.TextureAssetColorFormat.Rgba4444) {
             int offset = ((y * asset.Width) + x) * 2;
             ushort rgba = BitConverter.ToUInt16(asset.Colors, offset);
-            // Source is RGBA4444; the PVR wants ARGB4444, so rotate the alpha nibble to the top.
-            return (ushort)(((rgba & 0x000F) << 12) | ((rgba & 0xFFF0) >> 4));
+            // The engine stores red in the low nibble and alpha in the high nibble.
+            return (ushort)((rgba & 0xF0F0) | ((rgba & 0x000F) << 8) | ((rgba & 0x0F00) >> 8));
         }
 
         int index = ((y * asset.Width) + x) * 4;

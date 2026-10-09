@@ -5,6 +5,7 @@
 #include "DreamcastVideo.hpp"
 
 #include <dc/pvr.h>
+#include <dc/fmath.h>
 #include <kos/dbglog.h>
 #include <kos/timer.h>
 
@@ -293,7 +294,7 @@ bool DreamcastRasterRenderer::submitTexturedQuad(const AuthoredSpriteState& spri
         // per sprite, per frame.
         pvr_poly_cxt_t context{};
         pvr_poly_cxt_txr(&context, PVR_LIST_TR_POLY,
-                         PVR_TXRFMT_ARGB4444 | PVR_TXRFMT_TWIDDLED,
+                         static_cast<int>(texture.textureFormat),
                          static_cast<int>(texture.paddedSide),
                          static_cast<int>(texture.paddedSide), texture.vram,
                          PVR_FILTER_BILINEAR);
@@ -317,6 +318,9 @@ bool DreamcastRasterRenderer::submitTexturedQuad(const AuthoredSpriteState& spri
         // square, so U and V stay inside [0,1]; clamping keeps a corner that
         // lands exactly on 1.0 from wrapping back onto the opposite edge.
         context.txr.uv_clamp = PVR_UVCLAMP_UV;
+        context.txr.mipmap = texture.mipmaps ? PVR_MIPMAP_ENABLE : PVR_MIPMAP_DISABLE;
+        const bool bump = ((texture.textureFormat >> 27) & 7u) == 4;
+        if (bump) context.gen.specular = PVR_SPECULAR_ENABLE;
 
         // pvr_poly_hdr_t is a 32-byte cache-line-aligned type, which is what
         // pvr_poly_compile() needs: it allocates the destination's cache line
@@ -337,13 +341,15 @@ bool DreamcastRasterRenderer::submitTexturedQuad(const AuthoredSpriteState& spri
         const std::uint32_t tint = renderer_detail::packColor(sprite.tint);
         // Four vertices as one strip: top-left, top-right, bottom-left,
         // bottom-right. That is the two triangles of the quad.
-        const renderer_detail::VertexPacket corners[4] = {
+        renderer_detail::VertexPacket corners[4] = {
             makeSpriteVertexPacket(left, top, sprite.sourceU0, sprite.sourceV0, tint, false),
             makeSpriteVertexPacket(left + xx, top + xy, sprite.sourceU1, sprite.sourceV0, tint, false),
             makeSpriteVertexPacket(left + yx, top + yy, sprite.sourceU0, sprite.sourceV1, tint, false),
             makeSpriteVertexPacket(left + xx + yx, top + xy + yy, sprite.sourceU1, sprite.sourceV1, tint, true),
         };
-        for (const renderer_detail::VertexPacket& corner : corners) {
+        for (renderer_detail::VertexPacket& corner : corners) {
+            // Standalone bump sprites use a frontal light; material-controlled multi-pass lighting is separate.
+            if (bump) corner.oargb = pvr_pack_bump(1.0f, 1.57079632679f, 0.0f);
             if (pvr_prim(&corner, sizeof(corner)) != 0) {
                 return false;
             }

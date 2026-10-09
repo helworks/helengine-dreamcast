@@ -96,7 +96,9 @@ public sealed class DreamcastPlatformDefinitionTests {
         Assert.Equal(TextureAssetAlphaPrecision.A8, settings.AlphaPrecision);
 
         Assert.NotNull(capability.TextureFormatCapabilities);
-        Assert.Equal(new[] { TextureAssetColorFormat.Rgba32.ToString() }, capability.TextureFormatCapabilities.SupportedColorFormatIds);
+        Assert.Equal(30, capability.TextureFormatCapabilities.SupportedColorFormatIds.Count());
+        Assert.Contains("DcPal4", capability.TextureFormatCapabilities.SupportedColorFormatIds);
+        Assert.Contains("DcArgb4444_VqMipmapped", capability.TextureFormatCapabilities.SupportedColorFormatIds);
         Assert.Contains(TextureAssetAlphaPrecision.Opaque, capability.TextureFormatCapabilities.SupportedAlphaPrecisions);
         Assert.Contains(TextureAssetAlphaPrecision.A8, capability.TextureFormatCapabilities.SupportedAlphaPrecisions);
 

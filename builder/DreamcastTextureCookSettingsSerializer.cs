@@ -19,7 +19,7 @@ public static class DreamcastTextureCookSettingsSerializer {
 
         return JsonSerializer.Serialize(new Dictionary<string, object> {
             ["maxResolution"] = settings.MaxResolution,
-            ["colorFormat"] = settings.ColorFormat.ToString(),
+            ["colorFormat"] = settings.ColorFormatId,
             ["alphaPrecision"] = settings.AlphaPrecision.ToString()
         });
     }
@@ -53,19 +53,20 @@ public static class DreamcastTextureCookSettingsSerializer {
         string colorFormatName = colorFormatElement.GetString();
         string alphaPrecisionName = alphaPrecisionElement.GetString();
 
-        if (!Enum.TryParse(colorFormatName, true, out helengine.TextureAssetColorFormat colorFormat)) {
-            throw new InvalidOperationException($"Unsupported Dreamcast texture color format '{colorFormatName}'.");
-        }
-        if (colorFormat != helengine.TextureAssetColorFormat.Rgba32) {
-            throw new InvalidOperationException($"Dreamcast textures must cook from Rgba32; received '{colorFormatName}'.");
-        }
-        if (!Enum.TryParse(alphaPrecisionName, true, out helengine.TextureAssetAlphaPrecision alphaPrecision)) {
+        if (!Enum.TryParse(alphaPrecisionName, true, out helengine.TextureAssetAlphaPrecision alphaPrecision) || !Enum.IsDefined(alphaPrecision)) {
             throw new InvalidOperationException($"Unsupported Dreamcast texture alpha precision '{alphaPrecisionName}'.");
+        }
+        if (maxResolution < 0 || maxResolution > DreamcastTextureSchemaIds.MaximumSide) throw new InvalidOperationException("Dreamcast maximum resolution must be 0..512.");
+        if (colorFormatName != "Rgba32") {
+            DreamcastTextureFormat format = DreamcastTextureFormatCatalog.Resolve(colorFormatName);
+            if (!format.GetAlphaPrecisions().Contains(alphaPrecision)) throw new InvalidOperationException($"{format.Id} cannot store {alphaPrecision} alpha.");
+        } else if (alphaPrecision != helengine.TextureAssetAlphaPrecision.Opaque && alphaPrecision != helengine.TextureAssetAlphaPrecision.A8) {
+            throw new InvalidOperationException("Legacy Dreamcast Rgba32 settings support Opaque or A8 source alpha.");
         }
 
         return new TextureAssetProcessorSettings {
             MaxResolution = maxResolution,
-            ColorFormat = colorFormat,
+            ColorFormatId = colorFormatName,
             AlphaPrecision = alphaPrecision
         };
     }

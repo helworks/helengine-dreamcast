@@ -20,6 +20,14 @@ struct CookedTextureHeader {
     std::uint16_t usedWidth;
     /// Real image height, no greater than paddedSide.
     std::uint16_t usedHeight;
+    /// PVR format bits, excluding a palette bank assigned at load time.
+    std::uint32_t textureFormat;
+    /// Whether the payload includes the full smallest-first mip chain.
+    bool mipmaps;
+    /// 32-byte-aligned upload length, excluding the palette tail.
+    std::size_t pixelBytes;
+    /// RGBA8888 entries appended after the upload payload: zero, 16 or 256.
+    std::uint16_t paletteEntries;
 };
 
 /// Outcome of parsing a cooked texture header.
@@ -34,15 +42,15 @@ enum class CookedTextureStatus : std::uint8_t {
     TooSmall,
     /// The magic bytes at offset 0 are not "DCTX".
     BadMagic,
-    /// The version field is not the currently supported value of 1.
+    /// The version field is neither legacy version one nor native version two.
     BadVersion,
-    /// The flags field is nonzero.
+    /// Flags or palette count are invalid for this version or hardware layout.
     BadFlags,
     /// The padded side is zero, not a power of two, or exceeds 1024.
     BadSide,
     /// The used width or height is zero, or exceeds the padded side.
     BadExtent,
-    /// The buffer length does not equal the header plus side * side * 2 bytes of pixels.
+    /// The buffer length does not equal the header, format-dependent pixels and palette tail.
     SizeMismatch,
 };
 

@@ -8,6 +8,40 @@ namespace helengine.dreamcast.builder.tests;
 
 /// <summary>Verifies the Dreamcast builder-owned cook work item executor.</summary>
 public sealed class DreamcastPlatformCookWorkItemExecutorTests {
+    /// <summary>Exercises the builder-owned work item path with a native format rather than passing it to the generic processor.</summary>
+    [Fact]
+    public void Execute_CooksPublishedNativeFormat() {
+        using TemporaryDirectory temporary = new();
+        string source = WriteSolidPng(Path.Combine(temporary.Path, "source.png"), 8, 8);
+        string root = Path.Combine(temporary.Path, "package-source");
+        string settings = DreamcastTextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings { ColorFormatId = "DcPal4_Mipmapped", AlphaPrecision = helengine.TextureAssetAlphaPrecision.A4, MaxResolution = 64 });
+        PlatformCookWorkItem native = new("dc:texture:icon", source, "texture", "dc", "runtime-texture", "textures/icon.dctex", "runtime-texture:icon", "sha256:" + new string('0', 64), "sha256:" + new string('1', 64), settings, []);
+        new DreamcastPlatformCookWorkItemExecutor().Execute(native, root);
+        byte[] cooked = File.ReadAllBytes(Path.Combine(root, "textures", "icon.dctex"));
+        Assert.Equal((ushort)2, BitConverter.ToUInt16(cooked, 4));
+        Assert.Equal((ushort)21, BitConverter.ToUInt16(cooked, 6));
+        Assert.Equal((ushort)16, BitConverter.ToUInt16(cooked, 14));
+    }
+
+    /// <summary>Imports a paletted authored PVR and its companion DPAL file through the real builder source-decoder path.</summary>
+    [Fact]
+    public void Execute_ImportsNativePvrWithCompanionPalette() {
+        using TemporaryDirectory temporary = new();
+        string source = Path.Combine(temporary.Path, "source.pvr");
+        byte[] pvr = new byte[48];
+        BitConverter.TryWriteBytes(pvr.AsSpan(0), 0x54525650u);
+        BitConverter.TryWriteBytes(pvr.AsSpan(4), 40u);
+        pvr[9] = 5;
+        BitConverter.TryWriteBytes(pvr.AsSpan(12), (ushort)8);
+        BitConverter.TryWriteBytes(pvr.AsSpan(14), (ushort)8);
+        File.WriteAllBytes(source, pvr);
+        File.WriteAllBytes(Path.ChangeExtension(source, ".pal"), [(byte)'D', (byte)'P', (byte)'A', (byte)'L', 1, 0, 0, 0, 0, 0, 255, 255]);
+        string root = Path.Combine(temporary.Path, "package-source");
+        new DreamcastPlatformCookWorkItemExecutor().Execute(CreateWorkItem(source, "texture", "textures/icon.dctex"), root);
+        byte[] cooked = File.ReadAllBytes(Path.Combine(root, "textures", "icon.dctex"));
+        Assert.Equal((ushort)8, BitConverter.ToUInt16(cooked, 10));
+        Assert.Equal((ushort)0xFF00, BitConverter.ToUInt16(cooked, 16));
+    }
     /// <summary>Rejects a source asset kind this platform does not support, naming it.</summary>
     [Fact]
     public void Execute_RejectsAnUnsupportedSourceAssetKindByName() {
@@ -198,7 +232,7 @@ public sealed class DreamcastPlatformCookWorkItemExecutorTests {
 
     sealed class TemporaryDirectory : IDisposable {
         public TemporaryDirectory() {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "helengine-dc-cook-executor-" + Guid.NewGuid().ToString("N"));
+            Path = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "helengine-dc-cook-executor-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }
 

@@ -189,6 +189,10 @@ struct SpriteTexture {
     std::uint16_t usedWidth = 0;
     /// Real image height within the padded square.
     std::uint16_t usedHeight = 0;
+    /// Native pixel/layout/palette flags; legacy hand-built sprites default to ARGB4444.
+    std::uint32_t textureFormat = 2u << 27;
+    /// Enables hardware sampling of the cooked mip chain.
+    bool mipmaps = false;
 };
 
 namespace renderer_detail {

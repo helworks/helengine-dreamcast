@@ -3,6 +3,7 @@
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 
 #include "DreamcastTextureFormat.hpp"
+#include "DreamcastPaletteAllocator.hpp"
 
 #include <dc/pvr.h>
 
@@ -12,6 +13,9 @@
 
 namespace helengine::dreamcast {
 namespace {
+
+/// All runtime textures share the same hardware palette and ARGB8888 interpretation.
+DreamcastPaletteAllocator paletteAllocator;
 
 /// Names a parse outcome so a rejected file reports which check failed.
 const char* cookedTextureStatusName(CookedTextureStatus status) noexcept {
@@ -55,6 +59,9 @@ const SpriteTexture& DreamcastRuntimeTexture::spriteTexture() const noexcept {
 }
 
 void DreamcastRuntimeTexture::releaseVideoMemory() noexcept {
+    if (paletteFirst_ >= 0) paletteAllocator.release(static_cast<unsigned>(paletteFirst_), paletteEntries_);
+    paletteFirst_ = -1;
+    paletteEntries_ = 0;
     if (texture_.vram != nullptr) {
         pvr_mem_free(static_cast<pvr_ptr_t>(texture_.vram));
     }
@@ -89,8 +96,7 @@ DreamcastRuntimeTexture* DreamcastRuntimeTexture::CreateFromCooked(
                                  cookedAssetPath);
     }
 
-    const std::size_t pixelBytes =
-        static_cast<std::size_t>(header.paddedSide) * header.paddedSide * 2u;
+    const std::size_t pixelBytes = header.pixelBytes;
 
     auto texture = std::unique_ptr<DreamcastRuntimeTexture>(new DreamcastRuntimeTexture());
     pvr_ptr_t vram = pvr_mem_malloc(pixelBytes);
@@ -104,6 +110,24 @@ DreamcastRuntimeTexture* DreamcastRuntimeTexture::CreateFromCooked(
     texture->texture_.paddedSide = header.paddedSide;
     texture->texture_.usedWidth = header.usedWidth;
     texture->texture_.usedHeight = header.usedHeight;
+    texture->texture_.textureFormat = header.textureFormat;
+    texture->texture_.mipmaps = header.mipmaps;
+
+    if (header.paletteEntries != 0) {
+        const int first = paletteAllocator.allocate(header.paletteEntries);
+        if (first < 0) throw std::runtime_error("Dreamcast palette RAM exhausted: " + cookedAssetPath);
+        texture->paletteFirst_ = first;
+        texture->paletteEntries_ = header.paletteEntries;
+        // ARGB8888 is a global register: all banks must use the same interpretation.
+        pvr_set_pal_format(PVR_PAL_ARGB8888);
+        const std::uint8_t* palette = bytes + kCookedTextureHeaderBytes + pixelBytes;
+        for (unsigned entry = 0; entry < header.paletteEntries; ++entry) {
+            const std::uint8_t* color = palette + entry * 4;
+            const std::uint32_t argb = (std::uint32_t{color[3]} << 24) | (std::uint32_t{color[0]} << 16) | (std::uint32_t{color[1]} << 8) | color[2];
+            pvr_set_pal_entry(static_cast<unsigned>(first) + entry, argb);
+        }
+        texture->texture_.textureFormat |= header.paletteEntries == 16 ? PVR_TXRFMT_4BPP_PAL(first / 16) : PVR_TXRFMT_8BPP_PAL(first / 256);
+    }
 
     // The payload is already twiddled; this is a plain byte copy.
     pvr_txr_load(bytes + kCookedTextureHeaderBytes, vram, pixelBytes);

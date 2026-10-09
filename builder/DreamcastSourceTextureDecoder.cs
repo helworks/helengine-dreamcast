@@ -31,6 +31,11 @@ public sealed class DreamcastSourceTextureDecoder {
             return DecodeEngineTextureAsset(sourceAssetPath);
         }
 
+        if (string.Equals(Path.GetExtension(sourceAssetPath), ".pvr", StringComparison.OrdinalIgnoreCase)) {
+            using FileStream stream = File.OpenRead(sourceAssetPath);
+            return new helengine.editor.DreamcastPvrTextureImporter().ImportTexture(stream);
+        }
+
         return DecodeImageFile(sourceAssetPath);
     }
 

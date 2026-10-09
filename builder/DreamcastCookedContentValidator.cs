@@ -65,6 +65,7 @@ public sealed class DreamcastCookedContentValidator {
         int materialCount = 0;
         int textureCount = 0;
         long textureVideoMemoryBytes = 0;
+        int paletteEntries = 0;
         foreach (string fullPath in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).OrderBy(path => path, StringComparer.Ordinal)) {
             string relativePath = Path.GetRelativePath(root, fullPath).Replace('\\', '/');
             if (string.Equals(relativePath, scenePath, StringComparison.Ordinal)) {
@@ -73,6 +74,7 @@ public sealed class DreamcastCookedContentValidator {
             byte[] bytes = ReadStagedFile(root, relativePath);
             if (HasCookedTextureMagic(bytes)) {
                 textureVideoMemoryBytes += ValidateCookedTexture(bytes, relativePath);
+                if (BitConverter.ToUInt16(bytes, 4) == 2) paletteEntries += BitConverter.ToUInt16(bytes, 14);
                 textureCount++;
                 continue;
             }
@@ -94,6 +96,7 @@ public sealed class DreamcastCookedContentValidator {
                 throw new InvalidOperationException($"Staged package contains unsupported cooked asset type '{staged.GetType().Name}' at '{relativePath}'.");
             }
         }
+        if (paletteEntries > 1024) throw new InvalidOperationException($"Staged package requires {paletteEntries} palette entries; Dreamcast palette RAM holds 1024.");
         if (meshCount > 0 && modelCount < 1) {
             throw new InvalidOperationException("Staged package contains no model; the startup mesh has nothing to draw.");
         }
@@ -197,12 +200,12 @@ public sealed class DreamcastCookedContentValidator {
                 $"Cooked texture '{path}' is {bytes.Length} bytes, shorter than the {DreamcastTextureSchemaIds.HeaderBytes}-byte {DreamcastTextureSchemaIds.FormatId} header.");
         }
         ushort version = BitConverter.ToUInt16(bytes, 4);
-        if (version != DreamcastTextureSchemaIds.Version) {
+        if (version != DreamcastTextureSchemaIds.Version && version != 2) {
             throw new InvalidOperationException(
-                $"Cooked texture '{path}' declares {DreamcastTextureSchemaIds.FormatId} version {version}; the runtime loads version {DreamcastTextureSchemaIds.Version} only.");
+                $"Cooked texture '{path}' declares unsupported version {version}; the runtime loads versions 1 and 2.");
         }
         ushort flags = BitConverter.ToUInt16(bytes, 6);
-        if (flags != 0) {
+        if (version == 1 && flags != 0) {
             throw new InvalidOperationException($"Cooked texture '{path}' sets reserved flags 0x{flags:X4}; the runtime rejects a nonzero flags field.");
         }
         ushort paddedSide = BitConverter.ToUInt16(bytes, 8);
@@ -221,9 +224,16 @@ public sealed class DreamcastCookedContentValidator {
         // The reserved halfword at offset 14 is deliberately not checked: the version field is the compatibility
         // mechanism, and enforcing reserved bytes would turn any future use of them into a breaking change.
         long pixelBytes = (long)paddedSide * paddedSide * 2L;
-        if (bytes.LongLength != DreamcastTextureSchemaIds.HeaderBytes + pixelBytes) {
+        int paletteBytes = 0;
+        if (version == 2) {
+            DreamcastTextureFormat format = DreamcastTextureFormatCatalog.ResolveFlags(flags);
+            if (BitConverter.ToUInt16(bytes, 14) != format.PaletteEntries) throw new InvalidOperationException($"Cooked texture '{path}' has an invalid palette count.");
+            pixelBytes = format.GetPixelBytes(paddedSide);
+            paletteBytes = format.PaletteEntries * 4;
+        }
+        if (bytes.LongLength != DreamcastTextureSchemaIds.HeaderBytes + pixelBytes + paletteBytes) {
             throw new InvalidOperationException(
-                $"Cooked texture '{path}' is {bytes.LongLength} bytes; a {paddedSide} square ARGB4444 payload is {DreamcastTextureSchemaIds.HeaderBytes + pixelBytes}.");
+                $"Cooked texture '{path}' is {bytes.LongLength} bytes; a {paddedSide} square {(version == 1 ? "ARGB4444" : "native PVR")} payload is {DreamcastTextureSchemaIds.HeaderBytes + pixelBytes + paletteBytes}.");
         }
         return pixelBytes;
     }

@@ -27,8 +27,8 @@ namespace helengine::dreamcast {
 /// the PVR requires is a storage detail that only the raster stage needs.
 class DreamcastRuntimeTexture final : public ::RuntimeTexture {
 public:
-    /// Parses a cooked dc-texture-v1 buffer, allocates video memory for its
-    /// pixel payload and uploads it.
+    /// Parses a legacy or native DCTX buffer, allocates video and palette memory,
+    /// and uploads its already prepared pixel/layout payload.
     ///
     /// The payload is already twiddled by the builder, so it is uploaded with
     /// pvr_txr_load, a plain byte copy. pvr_txr_load_ex is deliberately not
@@ -65,6 +65,10 @@ private:
     void releaseVideoMemory() noexcept;
 
     SpriteTexture texture_{};
+    /// First entry reserved in the shared PVR palette, or -1 for a direct-color texture.
+    int paletteFirst_ = -1;
+    /// Number of entries owned until disposal.
+    unsigned paletteEntries_ = 0;
 };
 
 } // namespace helengine::dreamcast

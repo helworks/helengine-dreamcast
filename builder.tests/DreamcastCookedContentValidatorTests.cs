@@ -192,6 +192,20 @@ public sealed class DreamcastCookedContentValidatorTests {
         Validate(temporary.Path);
     }
 
+    /// <summary>Counts palette RAM independently of VRAM and accepts exactly four full PAL8 banks.</summary>
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(5, false)]
+    public void EnforcesNativePaletteRamBudget(int count, bool accepted) {
+        using TemporaryDirectory temporary = new();
+        DreamcastCookedTestContent.WriteValidPackage(temporary.Path);
+        using helengine.TextureAsset source = new() { Width = 8, Height = 8, ColorFormat = helengine.TextureAssetColorFormat.Rgba32, Colors = new byte[256], PaletteColors = new byte[0] };
+        byte[] texture = new DreamcastTextureCooker().Cook(source, new helengine.editor.TextureAssetProcessorSettings { ColorFormatId = "DcPal8", AlphaPrecision = helengine.TextureAssetAlphaPrecision.A8 });
+        for (int i = 0; i < count; i++) DreamcastCookedTestContent.WriteFile(temporary.Path, $"textures/palette{i}.dctex", texture);
+        if (accepted) Validate(temporary.Path);
+        else Assert.Contains("palette RAM", Assert.Throws<InvalidOperationException>(() => Validate(temporary.Path)).Message);
+    }
+
     /// <summary>A packaged FontAsset and its matching builder-cooked atlas are accepted in staged content.</summary>
     [Fact]
     public void AcceptsStagedFontAssetAndCookedAtlas() {
@@ -221,7 +235,7 @@ public sealed class DreamcastCookedContentValidatorTests {
 
     /// <summary>A cooked texture the runtime parser would refuse is rejected at build time, with its path and cause.</summary>
     [Theory]
-    [InlineData(4, (ushort)2, "version")]
+    [InlineData(4, (ushort)3, "version")]
     [InlineData(6, (ushort)1, "flags")]
     [InlineData(8, (ushort)12, "padded side")]
     [InlineData(10, (ushort)0, "used extent")]
@@ -376,7 +390,7 @@ public sealed class DreamcastCookedContentValidatorTests {
 
     sealed class TemporaryDirectory : IDisposable {
         public TemporaryDirectory() {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "helengine-dc-content-" + Guid.NewGuid().ToString("N"));
+            Path = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "helengine-dc-content-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }
 

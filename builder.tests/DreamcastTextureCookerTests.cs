@@ -147,14 +147,13 @@ public sealed class DreamcastTextureCookerTests {
             AlphaPrecision = helengine.TextureAssetAlphaPrecision.A4,
             Colors = new byte[2]
         };
-        // Source RGBA4444 with distinct nibbles: R=1, G=2, B=3, A=4
-        // Encoded as: [R][G][B][A] = 0x1234
-        BitConverter.TryWriteBytes(asset.Colors.AsSpan(0), (ushort)0x1234);
+        // Engine RGBA4444 stores R=1 in bits 0..3 and A=4 in bits 12..15.
+        BitConverter.TryWriteBytes(asset.Colors.AsSpan(0), (ushort)0x4321);
 
         byte[] cooked = new DreamcastTextureCooker().Cook(asset);
 
         int offset = DreamcastTextureSchemaIds.HeaderBytes + (DreamcastTextureTwiddle.TwiddledIndex(0, 0) * 2);
-        // Alpha rotated from bits 3-0 to bits 15-12: result is ARGB4444 = 0x4123
+        // The PVR swaps the red and blue nibble: ARGB4444 = 0x4123.
         Assert.Equal((ushort)0x4123, BitConverter.ToUInt16(cooked, offset));
     }
 

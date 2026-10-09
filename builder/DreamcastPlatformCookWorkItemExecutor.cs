@@ -66,8 +66,12 @@ public sealed class DreamcastPlatformCookWorkItemExecutor {
             decodedTexture = SourceTextureDecoder.Decode(workItem.SourceAssetPath);
             decodedTexture.Id = workItem.OutputLogicalArtifactId;
             downscaledTexture = DreamcastTextureDownscaler.Downscale(decodedTexture, settings.MaxResolution);
-            processedTexture = TextureProcessor.Apply(downscaledTexture, settings);
-            cookedBytes = TextureCooker.Cook(processedTexture);
+            processedTexture = TextureProcessor.Apply(downscaledTexture, new TextureAssetProcessorSettings {
+                MaxResolution = settings.MaxResolution,
+                ColorFormat = helengine.TextureAssetColorFormat.Rgba32,
+                AlphaPrecision = settings.AlphaPrecision
+            });
+            cookedBytes = TextureCooker.Cook(processedTexture, settings);
         } finally {
             if (!ReferenceEquals(processedTexture, downscaledTexture) && !ReferenceEquals(processedTexture, decodedTexture)) {
                 processedTexture?.Dispose();
