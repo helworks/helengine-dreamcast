@@ -11,6 +11,41 @@ public sealed class DreamcastContentStagerTests {
     const string FontPath = "cooked/fonts/test.hefont";
     const string FontAtlasPath = "cooked/fonts/test.dctex";
 
+    /// <summary>Accepts larger resident packages while independently enforcing the runtime's per-file read cap.</summary>
+    /// <param name="textureBytes">Size of each builder-owned texture payload.</param>
+    /// <param name="textureCount">Number of textures included in the package.</param>
+    /// <param name="expectedError">Expected budget error, or an empty string for a valid package.</param>
+    [Theory]
+    [InlineData(600000, 2, "")]
+    [InlineData(600000, 4, "two MiB")]
+    [InlineData(1048577, 1, "one MiB runtime read")]
+    public void Stage_SeparatesResidentBudgetFromIndividualReadLimit(int textureBytes, int textureCount, string expectedError) {
+        using TemporaryDirectory temporary = new();
+        string sourceRoot = Path.Combine(temporary.Path, "package-source");
+        string destinationRoot = Path.Combine(temporary.Path, "stage");
+        PlatformBuildArtifact[] artifacts = DreamcastCookedTestContent.WriteValidPackage(sourceRoot);
+        List<string> textures = [];
+        for (int index = 0; index < textureCount; index++) {
+            string relativePath = $"textures/texture-{index}.dctex";
+            DreamcastCookedTestContent.WriteFile(sourceRoot, relativePath, new byte[textureBytes]);
+            textures.Add(relativePath);
+        }
+        DreamcastContentStager stager = new();
+        PlatformBuildManifest manifest = CreateManifest(artifacts[0], artifacts[1..]);
+        if (expectedError.Length != 0) {
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                stager.Stage(manifest, sourceRoot, destinationRoot, textures, CancellationToken.None));
+            Assert.Contains(expectedError, error.Message, StringComparison.Ordinal);
+        } else {
+            IReadOnlyList<string> staged = stager.Stage(manifest, sourceRoot, destinationRoot, textures, CancellationToken.None);
+            Assert.True(textureBytes * textureCount > 1024 * 1024);
+            foreach (string texture in textures) {
+                Assert.Contains(texture, staged);
+                Assert.Equal(textureBytes, new FileInfo(Path.Combine(destinationRoot, texture)).Length);
+            }
+        }
+    }
+
     /// <summary>Preserves declared animation bytes required by authored AnimationPlayer components.</summary>
     [Fact]
     public void StageCopiesDeclaredAnimationClipVerbatim() {

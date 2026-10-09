@@ -19,7 +19,10 @@ namespace helengine.dreamcast.builder;
 /// are exposed through <see cref="LastSkippedRelativePaths"/> for diagnostics.
 /// </remarks>
 public sealed class DreamcastContentStager {
-    const long MaximumPayloadBytes = 1024 * 1024;
+    /// <summary>Bounds each file by the runtime content stream's unchanged one MiB read limit.</summary>
+    const long MaximumFileBytes = 1024 * 1024;
+    /// <summary>Allows the resident menu ROMFS to hold larger textures while remaining within two MiB of console RAM.</summary>
+    const long MaximumPayloadBytes = 2 * 1024 * 1024;
     static readonly DateTime BuildEpochUtc = new(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     readonly DreamcastSceneCompatibilityValidator Validator;
 
@@ -105,9 +108,7 @@ public sealed class DreamcastContentStager {
             }
 
             FileInfo sourceInfo = new(sourcePath);
-            if (sourceInfo.Length > MaximumPayloadBytes || sourceInfo.Length > MaximumPayloadBytes - totalBytes) {
-                throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
-            }
+            ValidatePayloadSize(sourceInfo.Length, totalBytes);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             using (FileStream input = new(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.SequentialScan))
             using (FileStream output = new(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.SequentialScan)) {
@@ -115,9 +116,7 @@ public sealed class DreamcastContentStager {
             }
             VerifyHash(artifact, destinationPath);
             long copiedLength = new FileInfo(destinationPath).Length;
-            if (copiedLength > MaximumPayloadBytes || copiedLength > MaximumPayloadBytes - totalBytes) {
-                throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
-            }
+            ValidatePayloadSize(copiedLength, totalBytes);
             totalBytes += copiedLength;
             File.SetLastWriteTimeUtc(destinationPath, BuildEpochUtc);
             stagedPaths.Add(relativePath);
@@ -139,18 +138,14 @@ public sealed class DreamcastContentStager {
             }
 
             FileInfo sourceInfo = new(sourcePath);
-            if (sourceInfo.Length > MaximumPayloadBytes || sourceInfo.Length > MaximumPayloadBytes - totalBytes) {
-                throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
-            }
+            ValidatePayloadSize(sourceInfo.Length, totalBytes);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
             using (FileStream input = new(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.SequentialScan))
             using (FileStream output = new(destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.SequentialScan)) {
                 input.CopyTo(output);
             }
             long copiedLength = new FileInfo(destinationPath).Length;
-            if (copiedLength > MaximumPayloadBytes || copiedLength > MaximumPayloadBytes - totalBytes) {
-                throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the one MiB limit.");
-            }
+            ValidatePayloadSize(copiedLength, totalBytes);
             totalBytes += copiedLength;
             File.SetLastWriteTimeUtc(destinationPath, BuildEpochUtc);
             stagedPaths.Add(candidateRelativePath);
@@ -162,6 +157,17 @@ public sealed class DreamcastContentStager {
 
         LastSkippedRelativePaths = skippedPaths;
         return stagedPaths;
+    }
+
+    /// <summary>Checks the runtime file read limit separately from the resident ROMFS allocation budget.</summary>
+    /// <param name="fileBytes">Length of the file before or after copying.</param>
+    /// <param name="totalBytes">Total size of files already staged.</param>
+    static void ValidatePayloadSize(long fileBytes, long totalBytes) {
+        if (fileBytes > MaximumFileBytes) {
+            throw new InvalidOperationException("Dreamcast ROMFS file exceeds the one MiB runtime read limit.");
+        } else if (fileBytes > MaximumPayloadBytes - totalBytes) {
+            throw new InvalidOperationException("Dreamcast ROMFS payload exceeds the two MiB limit.");
+        }
     }
 
     /// <summary>Distinguishes how a cooked artifact should be staged, decided by a single deserialization of its bytes.</summary>
