@@ -14,7 +14,7 @@ class DreamcastContentStreamSource final : public ::IContentStreamSource {
 public:
     explicit DreamcastContentStreamSource(std::string contentRootPath = "/rd/");
 
-    ::Stream* OpenRead(std::string assetPath) override;
+    ::Stream* OpenRead(::HeCppString assetPath) override;
 
     /// File-system seam used by generated File::OpenRead for /rd paths.
     static bool CanHandlePath(const char* path);

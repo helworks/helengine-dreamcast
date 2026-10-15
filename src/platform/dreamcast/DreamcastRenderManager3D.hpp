@@ -44,11 +44,11 @@ public:
     ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
 
     ::RuntimeMaterial* BuildMaterialFromCooked(
-        std::string cookedAssetPath,
+        ::HeCppString cookedAssetPath,
         ::IContentStreamSource* contentStreamSource) override;
 
     ::RuntimeModel* BuildModelFromCooked(
-        std::string cookedAssetPath,
+        ::HeCppString cookedAssetPath,
         ::IContentStreamSource* contentStreamSource) override;
 
     ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;

@@ -89,6 +89,7 @@ GENERATED_WARNING_FLAGS := \
     -Wno-error=unused-function \
     -Wno-error=unused-local-typedefs \
     -Wno-error=unused-parameter \
+    -Wno-error=unused-variable \
     -Wno-error=delete-non-virtual-dtor \
     -Wno-error=reorder \
     -Wno-error=sign-compare \

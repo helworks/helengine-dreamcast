@@ -55,8 +55,8 @@ DreamcastContentStreamSource::DreamcastContentStreamSource(std::string contentRo
     : contentRootPath_(normalizeRootPath(contentRootPath)) {
 }
 
-::Stream* DreamcastContentStreamSource::OpenRead(std::string assetPath) {
-    return OpenRead(buildAssetPath(assetPath).c_str());
+::Stream* DreamcastContentStreamSource::OpenRead(::HeCppString assetPath) {
+    return OpenRead(buildAssetPath(assetPath.raw()).c_str());
 }
 
 bool DreamcastContentStreamSource::CanHandlePath(const char* path) {

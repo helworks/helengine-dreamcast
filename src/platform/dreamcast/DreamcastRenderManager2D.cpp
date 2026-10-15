@@ -222,7 +222,7 @@ void DreamcastRenderManager2D::Dispose() {
 }
 
 ::RuntimeTexture* DreamcastRenderManager2D::BuildTextureFromCooked(
-    std::string cookedAssetPath,
+    ::HeCppString cookedAssetPath,
     ::IContentStreamSource* contentStreamSource) {
     // Matches the generated base, which rejects a whitespace-only path as well
     // as an empty one; without this a blank path reaches the stream source.
@@ -232,8 +232,8 @@ void DreamcastRenderManager2D::Dispose() {
     if (contentStreamSource == nullptr) {
         throw std::invalid_argument("Dreamcast content stream source cannot be null.");
     }
-    const std::vector<std::uint8_t> bytes = readCookedAsset(cookedAssetPath, contentStreamSource);
-    return DreamcastRuntimeTexture::CreateFromCooked(cookedAssetPath, bytes.data(), bytes.size());
+    const std::vector<std::uint8_t> bytes = readCookedAsset(cookedAssetPath.raw(), contentStreamSource);
+    return DreamcastRuntimeTexture::CreateFromCooked(cookedAssetPath.raw(), bytes.data(), bytes.size());
 }
 
 ::RuntimeTexture* DreamcastRenderManager2D::BuildTextureFromRaw(::TextureAsset*) {
@@ -447,7 +447,8 @@ void DreamcastRenderManager2D::DrawText(::ITextDrawable2D* text) {
     const ::float3 position = owner->get_Position();
     const ::int2 size = text->get_Size();
     const ::byte4 color = text->get_Color();
-    const TextLayoutInput input{text->get_Text().c_str(), position.X, position.Y,
+    const auto textValue = text->get_Text();
+    const TextLayoutInput input{textValue.c_str(), position.X, position.Y,
                                 static_cast<float>(size.X), static_cast<float>(size.Y),
                                 text->get_FontScale(),
                                 static_cast<TextHorizontalAlignment>(text->get_Alignment()),

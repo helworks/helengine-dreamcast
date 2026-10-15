@@ -35,7 +35,7 @@ DreamcastInputBackend::DreamcastInputBackend() {
             if (pad->rtrig > 64) buttons |= std::uint64_t{1} << 9;
             state.set_Buttons(buttons);
             state.set_LeftStickX(static_cast<std::int16_t>(pad->joyx * 256));
-            state.set_LeftStickY(static_cast<std::int16_t>(-pad->joyy * 255));
+            state.set_LeftStickY(static_cast<std::int16_t>(pad->joyy * 255));
             state.set_LeftTrigger(static_cast<std::int16_t>(pad->ltrig * 128));
             state.set_RightTrigger(static_cast<std::int16_t>(pad->rtrig * 128));
         }

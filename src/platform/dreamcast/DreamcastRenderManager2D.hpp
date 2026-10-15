@@ -49,7 +49,7 @@ public:
 
     void Dispose() override;
 
-    ::RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath,
+    ::RuntimeTexture* BuildTextureFromCooked(::HeCppString cookedAssetPath,
                                              ::IContentStreamSource* contentStreamSource) override;
     ::RuntimeTexture* BuildTextureFromRaw(::TextureAsset* data) override;
     void ReleaseTexture(::RuntimeTexture* texture) override;

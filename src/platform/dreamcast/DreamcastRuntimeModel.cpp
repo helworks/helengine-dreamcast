@@ -28,7 +28,7 @@ void destroyModelAsset(::ModelAsset* asset) noexcept {
     }
     asset->Dispose();
     if (asset->FormerAuthoringAssetIds != nullptr &&
-        asset->FormerAuthoringAssetIds != ::Array<std::string>::Empty()) {
+        asset->FormerAuthoringAssetIds != ::Array<::HeCppString>::Empty()) {
         delete asset->FormerAuthoringAssetIds;
     }
     asset->FormerAuthoringAssetIds = nullptr;
@@ -120,7 +120,7 @@ void DreamcastRuntimeModel::Dispose() {
     ::ModelAsset* rawAsset = get_RawModelAsset();
     if (rawAsset != nullptr) {
         if (rawAsset->FormerAuthoringAssetIds != nullptr &&
-            rawAsset->FormerAuthoringAssetIds != ::Array<std::string>::Empty()) {
+            rawAsset->FormerAuthoringAssetIds != ::Array<::HeCppString>::Empty()) {
             delete rawAsset->FormerAuthoringAssetIds;
         }
         rawAsset->FormerAuthoringAssetIds = nullptr;
@@ -193,7 +193,7 @@ DreamcastRuntimeModel* DreamcastRuntimeModel::CreateOwned(::ModelAsset* asset) {
         const bool hasExplicitSubmesh =
             assetLease.value->Submeshes != nullptr && assetLease.value->Submeshes->get_Length() == 1;
         submesh->set_MaterialSlotName(
-            hasExplicitSubmesh ? (*assetLease.value->Submeshes)[0]->MaterialSlotName : std::string());
+            hasExplicitSubmesh ? (*assetLease.value->Submeshes)[0]->MaterialSlotName : ::HeCppString(""));
         submesh->set_IndexStart(0);
         submesh->set_IndexCount(static_cast<int32_t>(indexCount));
         submesh->set_PrimitiveTopology(::ModelPrimitiveTopology::TriangleList);

@@ -57,7 +57,7 @@ void destroyAsset(::Asset* asset) noexcept {
         disposable->Dispose();
     }
     if (asset->FormerAuthoringAssetIds != nullptr &&
-        asset->FormerAuthoringAssetIds != ::Array<std::string>::Empty()) {
+        asset->FormerAuthoringAssetIds != ::Array<::HeCppString>::Empty()) {
         delete asset->FormerAuthoringAssetIds;
     }
     asset->FormerAuthoringAssetIds = nullptr;
@@ -65,7 +65,7 @@ void destroyAsset(::Asset* asset) noexcept {
 }
 
 template <typename TAsset>
-TAsset* deserializeAsset(std::string path, ::IContentStreamSource* source) {
+TAsset* deserializeAsset(::HeCppString path, ::IContentStreamSource* source) {
     if (source == nullptr) {
         throw std::invalid_argument("Dreamcast content stream source cannot be null.");
     }
@@ -352,7 +352,7 @@ std::uint32_t DreamcastRenderManager3D::presentedFrameCount() const noexcept {
 }
 
 ::RuntimeMaterial* DreamcastRenderManager3D::BuildMaterialFromCooked(
-    std::string cookedAssetPath,
+    ::HeCppString cookedAssetPath,
     ::IContentStreamSource* contentStreamSource) {
     if (cookedAssetPath.empty()) {
         throw std::invalid_argument("Dreamcast cooked material path cannot be empty.");
@@ -370,7 +370,7 @@ std::uint32_t DreamcastRenderManager3D::presentedFrameCount() const noexcept {
 }
 
 ::RuntimeModel* DreamcastRenderManager3D::BuildModelFromCooked(
-    std::string cookedAssetPath,
+    ::HeCppString cookedAssetPath,
     ::IContentStreamSource* contentStreamSource) {
     if (cookedAssetPath.empty()) {
         throw std::invalid_argument("Dreamcast cooked model path cannot be empty.");
