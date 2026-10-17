@@ -25,6 +25,12 @@ struct AuthoredSpriteState {
     ColorRgba tint;
     float rotationCos = 1.0f;
     float rotationSin = 0.0f;
+    /// True for shared-core sprites; glyphs retain the rectangle path.
+    bool hasResolvedCorners = false;
+    /// Screen pixels in TL/TR/BL/BR strip order, preserving mirrors and shear.
+    float cornerX[4]{};
+    /// Screen Y paired with cornerX; never decomposed back into an angle.
+    float cornerY[4]{};
 };
 
 /// Sprite overlay submitted for one frame, in submission order.

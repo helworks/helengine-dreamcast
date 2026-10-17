@@ -8,6 +8,8 @@
 #include "Core.hpp"
 #include "Component.hpp"
 #include "Entity.hpp"
+#include "Batch2DGeometry.hpp"
+#include "SpriteQuad2D.hpp"
 #include "FontAsset.hpp"
 #include "FontChar.hpp"
 #include "FontInfo.hpp"
@@ -39,9 +41,8 @@
 
 namespace helengine::dreamcast {
 extern "C" {
-/// Numeric guest-RAM probe for large authored sprites: draw sequence, world
-/// origin X/Y, extent X/Y, quaternion Z/W and submitted rotation cosine/sine.
-/// This contains no framebuffer data and allows animation to be checked without capturing a window.
+/// Numeric guest-RAM probe for large authored sprites: draw sequence followed by
+/// TL/TR/BL/BR pixel X/Y pairs. Captures authoritative affine geometry without framebuffer data.
 volatile float helengine_dc_backdrop_probe[9] = {};
 }
 namespace {
@@ -108,15 +109,6 @@ std::vector<std::uint8_t> readCookedAsset(const std::string& cookedAssetPath,
 float unitFromByte(std::uint8_t channel) noexcept {
     return static_cast<float>(channel) * (1.0f / 255.0f);
 }
-
-/// Largest departure from the identity quaternion still treated as unrotated.
-///
-/// A sprite whose entity is never rotated carries an exact identity, but a
-/// sprite parented under other entities reaches its world orientation through
-/// float4::Concatenate, which accumulates a little floating-point error per
-/// level. This admits that error and nothing more; it is not a tolerance for
-/// "slightly rotated" art.
-constexpr float kIdentityOrientationEpsilon = 1.0e-4f;
 
 /// Captures the current clip intersection once for all glyphs and effect passes
 /// of one text drawable. Rectangles are read again on the next text draw so
@@ -289,73 +281,21 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
             "Dreamcast sprite draw requested before a frame assembler was installed.");
     }
 
-    // Built empty and filled only when every input is sound. A state left
-    // empty carries a null texture, which is exactly the assembler's
-    // InvalidSprite condition, so a null drawable, a null owning entity, a
-    // missing texture, a texture built by some other backend and a rotated
-    // entity all fail the whole frame rather than being skipped. A skipped or
-    // wrongly drawn sprite would render a wrong frame and report success.
+    // Invalid resources retain the assembler's latched frame failure behavior.
     AuthoredSpriteState state{};
     ::Entity* owner = sprite != nullptr ? sprite->get_Parent() : nullptr;
     auto* texture = sprite != nullptr
                         ? dynamic_cast<DreamcastRuntimeTexture*>(sprite->get_Texture())
                         : nullptr;
-    // The authored overlay accepts planar rotation; other orientation axes
-    // cannot be represented by this screen-space sprite contract.
-    const ::float4 orientation = owner != nullptr ? owner->get_Orientation() : ::float4{};
-    const bool planar = owner != nullptr &&
-                        std::fabs(orientation.X) <= kIdentityOrientationEpsilon &&
-                        std::fabs(orientation.Y) <= kIdentityOrientationEpsilon &&
-                        std::isfinite(orientation.Z) && std::isfinite(orientation.W);
-    if (owner != nullptr && texture != nullptr && planar) {
-        state.rotationCos = 1.0f - 2.0f * orientation.Z * orientation.Z;
-        state.rotationSin = 2.0f * orientation.W * orientation.Z;
+    if (owner != nullptr && texture != nullptr) {
         const SpriteTexture& handle = texture->spriteTexture();
-
-        // ISpriteDrawable2D carries no screen position; it comes from the
-        // owning entity. Entity::get_Position, get_Scale and get_Orientation
-        // all return *world* values from one cached transform decomposition
-        // (EnsureWorldTransformCache), so a sprite parented under another
-        // entity lands where the hierarchy puts it. They are read instead of
-        // get_WorldTransformMatrix because that accessor is uncached and
-        // recomposes the whole parent chain on every call, and because scale
-        // and orientation are needed here in decomposed form anyway.
-        const ::float3 position = owner->get_Position();
-        state.destinationX = position.X;
-        state.destinationY = position.Y;
-
-        // Size is authored in pixels and defaults to (0, 0), which the engine
-        // reads as "the whole texture"; RenderCommandListBuilder2D::EmitSprite
-        // makes the same substitution and multiplies the result by the world
-        // scale, which an axis-aligned rectangle represents exactly. A
-        // non-positive scale yields a non-positive extent, which the assembler
-        // rejects. Width/Height on the runtime texture are the real image
-        // extent, not the padded square.
-        //
-        // The fallback is a known per-platform hazard and is kept deliberately.
-        // Cooked textures on this platform are capped at 64 pixels per axis, so
-        // the runtime extent is the POST-downscale size: a sprite relying on the
-        // fallback draws a quarter the size here that it does on a platform
-        // cooking at native resolution. It is not a defect today because the
-        // scene this milestone targets never relies on it - every sprite in the
-        // console instruction Blueprint carries an explicit Size, produced by
-        // ResolvedControlIcon::FitDisplaySizeWithin, which clamps each axis to a
-        // minimum of one and is fed authored bounds of 48x48, 38x48 and 46x46.
-        // The serialized Blueprint was read to confirm this: every SpriteComponent
-        // Size field in it is nonzero. Diverging from the engine's own
-        // substitution would be the larger risk, since a scene that does rely on
-        // the fallback would then differ from every other platform in a second
-        // way. If a scene ever does rely on it, the honest fix is to carry the
-        // pre-downscale extent in the cooked header rather than to special-case
-        // the size here.
-        const ::int2 size = sprite->get_Size();
-        const ::float3 scale = owner->get_Scale();
-        state.destinationWidth =
-            (size.X > 0 ? static_cast<float>(size.X) : static_cast<float>(texture->Width)) *
-            scale.X;
-        state.destinationHeight =
-            (size.Y > 0 ? static_cast<float>(size.Y) : static_cast<float>(texture->Height)) *
-            scale.Y;
+        const ::SpriteQuad2D quad = ::Batch2DGeometry::ResolveSpriteQuad(sprite);
+        state.hasResolvedCorners = true;
+        const ::float2 points[]{quad.TopLeft, quad.TopRight, quad.BottomLeft, quad.BottomRight};
+        for (unsigned i = 0; i < 4; ++i) {
+            state.cornerX[i] = points[i].X;
+            state.cornerY[i] = points[i].Y;
+        }
 
         // get_SourceRect is (x, y, width, height) normalized against the real
         // image; the raster stage samples the padded square.
@@ -376,16 +316,14 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
         // its address is passed through unchanged. It stays valid until
         // ReleaseTexture, which cannot run inside a frame.
         state.texture = &handle;
-        if (state.destinationWidth > 400.0f && state.destinationHeight > 400.0f) {
+        const float spanX = std::fabs(quad.TopRight.X - quad.TopLeft.X) + std::fabs(quad.BottomLeft.X - quad.TopLeft.X);
+        const float spanY = std::fabs(quad.TopRight.Y - quad.TopLeft.Y) + std::fabs(quad.BottomLeft.Y - quad.TopLeft.Y);
+        if (spanX > 400.0f && spanY > 400.0f) {
             helengine_dc_backdrop_probe[0] += 1.0f;
-            helengine_dc_backdrop_probe[1] = position.X;
-            helengine_dc_backdrop_probe[2] = position.Y;
-            helengine_dc_backdrop_probe[3] = state.destinationWidth;
-            helengine_dc_backdrop_probe[4] = state.destinationHeight;
-            helengine_dc_backdrop_probe[5] = orientation.Z;
-            helengine_dc_backdrop_probe[6] = orientation.W;
-            helengine_dc_backdrop_probe[7] = state.rotationCos;
-            helengine_dc_backdrop_probe[8] = state.rotationSin;
+            for (unsigned i = 0; i < 4; ++i) {
+                helengine_dc_backdrop_probe[1 + i * 2] = state.cornerX[i];
+                helengine_dc_backdrop_probe[2 + i * 2] = state.cornerY[i];
+            }
         }
     }
 

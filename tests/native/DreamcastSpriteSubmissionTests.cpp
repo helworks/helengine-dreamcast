@@ -457,6 +457,22 @@ void UiOnlyFramePresentsWithoutMesh() {
 }
 
 int main() {
+    // Resolved mirrored/sheared corners bypass rectangle reconstruction, retaining validation.
+    {
+        AuthoredFrameAssembler assembler;
+        RecordingSink sink;
+        assembler.begin(640, 480);
+        auto sprite = validSprite();
+        sprite.hasResolvedCorners = true;
+        sprite.destinationWidth = sprite.destinationHeight = 0;
+        const float x[4] = {30,10,38,18}, y[4] = {20,25,60,65};
+        for (unsigned i = 0; i < 4; ++i) {
+            sprite.cornerX[i] = x[i]; sprite.cornerY[i] = y[i];
+        }
+        EXPECT(assembler.addSprite(sprite) == AuthoredFrameStatus::Ok);
+        sprite.cornerY[3] = std::numeric_limits<float>::quiet_NaN();
+        EXPECT(assembler.addSprite(sprite) == AuthoredFrameStatus::InvalidSprite);
+    }
     UiOnlyFramePresentsWithoutMesh();
     OneSpriteIsAcceptedAndCounted();
     SixtyFifthSpriteFails();

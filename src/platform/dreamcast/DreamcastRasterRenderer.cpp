@@ -341,11 +341,15 @@ bool DreamcastRasterRenderer::submitTexturedQuad(const AuthoredSpriteState& spri
         const std::uint32_t tint = renderer_detail::packColor(sprite.tint);
         // Four vertices as one strip: top-left, top-right, bottom-left,
         // bottom-right. That is the two triangles of the quad.
+        const float x[4] = {left, left + xx, left + yx, left + xx + yx};
+        const float y[4] = {top, top + xy, top + yy, top + xy + yy};
+        const float* cornerX = sprite.hasResolvedCorners ? sprite.cornerX : x;
+        const float* cornerY = sprite.hasResolvedCorners ? sprite.cornerY : y;
         renderer_detail::VertexPacket corners[4] = {
-            makeSpriteVertexPacket(left, top, sprite.sourceU0, sprite.sourceV0, tint, false),
-            makeSpriteVertexPacket(left + xx, top + xy, sprite.sourceU1, sprite.sourceV0, tint, false),
-            makeSpriteVertexPacket(left + yx, top + yy, sprite.sourceU0, sprite.sourceV1, tint, false),
-            makeSpriteVertexPacket(left + xx + yx, top + xy + yy, sprite.sourceU1, sprite.sourceV1, tint, true),
+            makeSpriteVertexPacket(cornerX[0], cornerY[0], sprite.sourceU0, sprite.sourceV0, tint, false),
+            makeSpriteVertexPacket(cornerX[1], cornerY[1], sprite.sourceU1, sprite.sourceV0, tint, false),
+            makeSpriteVertexPacket(cornerX[2], cornerY[2], sprite.sourceU0, sprite.sourceV1, tint, false),
+            makeSpriteVertexPacket(cornerX[3], cornerY[3], sprite.sourceU1, sprite.sourceV1, tint, true),
         };
         for (renderer_detail::VertexPacket& corner : corners) {
             // Standalone bump sprites use a frontal light; material-controlled multi-pass lighting is separate.

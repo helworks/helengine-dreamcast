@@ -279,7 +279,7 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
         !finite(sprite.sourceU0) || !finite(sprite.sourceV0) || !finite(sprite.sourceU1) ||
         !finite(sprite.sourceV1) || !finiteColor(sprite.tint) ||
         !finite(sprite.rotationCos) || !finite(sprite.rotationSin) ||
-        sprite.destinationWidth <= 0.0f || sprite.destinationHeight <= 0.0f ||
+        (!sprite.hasResolvedCorners && (sprite.destinationWidth <= 0.0f || sprite.destinationHeight <= 0.0f)) ||
         sprite.texture == nullptr ||
         sprite.sourceU0 < 0.0f || sprite.sourceU0 > 1.0f ||
         sprite.sourceV0 < 0.0f || sprite.sourceV0 > 1.0f ||
@@ -303,13 +303,23 @@ AuthoredFrameStatus AuthoredFrameAssembler::addSprite(const AuthoredSpriteState&
     // x/y.
     const float boundX = kSpriteDestinationBoundsMultiple * viewportWidth_;
     const float boundY = kSpriteDestinationBoundsMultiple * viewportHeight_;
-    const float destinationRight = sprite.destinationX + sprite.destinationWidth;
-    const float destinationBottom = sprite.destinationY + sprite.destinationHeight;
-    if (sprite.destinationX < -boundX || sprite.destinationX > boundX ||
-        sprite.destinationY < -boundY || sprite.destinationY > boundY ||
-        destinationRight < -boundX || destinationRight > boundX ||
-        destinationBottom < -boundY || destinationBottom > boundY) {
-        return fail(AuthoredFrameStatus::InvalidSprite);
+    if (sprite.hasResolvedCorners) {
+        for (unsigned corner = 0; corner < 4; ++corner) {
+            if (!finite(sprite.cornerX[corner]) || !finite(sprite.cornerY[corner]) ||
+                sprite.cornerX[corner] < -boundX || sprite.cornerX[corner] > boundX ||
+                sprite.cornerY[corner] < -boundY || sprite.cornerY[corner] > boundY) {
+                return fail(AuthoredFrameStatus::InvalidSprite);
+            }
+        }
+    } else {
+        const float destinationRight = sprite.destinationX + sprite.destinationWidth;
+        const float destinationBottom = sprite.destinationY + sprite.destinationHeight;
+        if (sprite.destinationX < -boundX || sprite.destinationX > boundX ||
+            sprite.destinationY < -boundY || sprite.destinationY > boundY ||
+            destinationRight < -boundX || destinationRight > boundX ||
+            destinationBottom < -boundY || destinationBottom > boundY) {
+            return fail(AuthoredFrameStatus::InvalidSprite);
+        }
     }
     const std::uint8_t index = static_cast<std::uint8_t>(overlay_->sprites.spriteCount);
     overlay_->sprites.sprites[overlay_->sprites.spriteCount] = sprite;
