@@ -130,7 +130,7 @@ public sealed class DreamcastMaterialCookerTests {
             "debug",
             "dc-standard",
             "foreign-schema",
-            CreateFields("#FFFFFFFF"));
+            CreateFields("#FFFFFFFF"), numericPolicy: global::helengine.NumericPrecisionPolicy.Default);
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => new DreamcastPlatformAssetBuilder().CookMaterial(request));
 
@@ -155,7 +155,7 @@ public sealed class DreamcastMaterialCookerTests {
             "debug",
             "dc-standard",
             DreamcastMaterialSchemaIds.StandardSchemaId,
-            fields);
+            fields, numericPolicy: global::helengine.NumericPrecisionPolicy.Default);
     }
 
     /// <summary>Creates the strict valid field set used by the focused cooker tests.</summary>
