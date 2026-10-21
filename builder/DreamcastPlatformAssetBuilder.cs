@@ -8,7 +8,12 @@ using helengine.baseplatform.Results;
 namespace helengine.dreamcast.builder;
 
 /// <summary>Publishes the Dreamcast platform contract and delegates native execution behind an injectable seam.</summary>
-public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder {
+public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder, IPlatformLayoutTargetProvider {
+    /// <summary>Returns the 640 by 480 framebuffer required and validated by DreamcastVideo.</summary>
+    public PlatformLayoutTarget ResolveLayoutTarget(PlatformLayoutTargetRequest request) {
+        ArgumentNullException.ThrowIfNull(request);
+        return new PlatformLayoutTarget(640, 480, 1d, false, 0d, 1d);
+    }
     readonly DreamcastMaterialCooker MaterialCooker = new();
     readonly DreamcastSceneCompatibilityValidator SceneValidator = new();
     readonly DreamcastContentStager ContentStager;
