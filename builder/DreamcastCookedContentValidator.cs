@@ -252,8 +252,8 @@ public sealed class DreamcastCookedContentValidator {
                 throw new InvalidOperationException($"Cooked font '{path}' must contain font metrics and between 1 and 256 glyphs.");
             }
             if (font.AtlasWidth < 1 || font.AtlasWidth > DreamcastTextureSchemaIds.MaximumSide || font.AtlasHeight < 1 || font.AtlasHeight > DreamcastTextureSchemaIds.MaximumSide ||
-                !float.IsFinite(font.LineHeight) || font.LineHeight <= 0f ||
-                !float.IsFinite(font.FontInfo.SpaceWidth) || font.FontInfo.SpaceWidth < 0f) {
+                !RealEvaluation.IsFinite(font.LineHeight) || font.LineHeight <= 0f ||
+                !RealEvaluation.IsFinite(font.FontInfo.SpaceWidth) || font.FontInfo.SpaceWidth < 0f) {
                 throw new InvalidOperationException($"Cooked font '{path}' has invalid Dreamcast atlas dimensions or layout metrics.");
             }
 
@@ -303,7 +303,7 @@ public sealed class DreamcastCookedContentValidator {
             }
         }
         foreach (float3 position in model.Positions) {
-            if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z)) {
+            if (!RealEvaluation.IsFinite(position.X) || !RealEvaluation.IsFinite(position.Y) || !RealEvaluation.IsFinite(position.Z)) {
                 throw new InvalidOperationException($"Model '{path}' contains a non-finite position.");
             }
         }
