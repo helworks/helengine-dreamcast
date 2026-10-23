@@ -22,6 +22,16 @@ function Write-JsonBytes($Name, $Value) {
     return $path
 }
 function Digest($Path) { return 'sha256:' + (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+$parseTokens=$null; $parseErrors=$null
+$buildAst=[Management.Automation.Language.Parser]::ParseFile($buildPath,[ref]$parseTokens,[ref]$parseErrors)
+if ($parseErrors.Count -ne 0) { throw 'build.ps1 did not parse.' }
+$relativeFunction=$buildAst.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-RelativePath'},$true)
+. ([scriptblock]::Create($relativeFunction.Extent.Text))
+$nested=Join-Path $FixtureRoot 'nested directory'
+New-Item -ItemType Directory -Force -Path $nested|Out-Null
+$inputPath=Join-Path $nested 'input file.txt'
+[IO.File]::WriteAllText($inputPath,'real fingerprint input')
+Check ((Get-RelativePath $FixtureRoot $inputPath).Replace('\','/') -ceq 'nested directory/input file.txt') 'Host absolute paths must fingerprint with canonical relative paths.'
 $layerA = 'sha256:' + ('a' * 64); $layerB = 'sha256:' + ('b' * 64)
 function Make-Proof([bool]$Indexed = $true, [bool]$Docker = $false) {
     $configPath = Write-JsonBytes 'config.json' @{os='linux';architecture='amd64';rootfs=@{type='layers';diff_ids=@($layerA,$layerB)}}

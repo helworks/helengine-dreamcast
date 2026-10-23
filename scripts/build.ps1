@@ -184,7 +184,9 @@ function Get-RelativePath {
     param([string]$BasePath, [string]$TargetPath)
     $baseFullPath = [IO.Path]::GetFullPath($BasePath).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
     $targetFullPath = [IO.Path]::GetFullPath($TargetPath)
-    $relativeUri = ([Uri]$baseFullPath).MakeRelativeUri([Uri]$targetFullPath)
+    $baseUri = [Uri]::new($baseFullPath, [UriKind]::Absolute)
+    $targetUri = [Uri]::new($targetFullPath, [UriKind]::Absolute)
+    $relativeUri = $baseUri.MakeRelativeUri($targetUri)
     return [Uri]::UnescapeDataString($relativeUri.ToString()).Replace('/', [IO.Path]::DirectorySeparatorChar)
 }
 
