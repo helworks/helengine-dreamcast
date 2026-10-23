@@ -79,18 +79,14 @@ public static class DreamcastFontAtlasMetricsScaler {
         }
     }
 
+    /// <summary>Reads used atlas dimensions after applying the runtime's shared versioned texture validation.</summary>
     static (ushort Width, ushort Height) ReadCookedExtent(byte[] bytes, string path) {
         if (bytes == null || bytes.Length < DreamcastTextureSchemaIds.HeaderBytes ||
-            BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(0, 4)) != DreamcastTextureSchemaIds.Magic ||
-            BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(4, 2)) != DreamcastTextureSchemaIds.Version)
+            BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(0, 4)) != DreamcastTextureSchemaIds.Magic)
             throw new InvalidDataException($"Cooked font atlas '{path}' has an invalid Dreamcast texture header.");
-        ushort side = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8, 2));
+        DreamcastCookedContentValidator.ValidateCookedTexture(bytes, path);
         ushort width = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(10, 2));
         ushort height = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(12, 2));
-        long expectedLength = DreamcastTextureSchemaIds.HeaderBytes + (long)side * side * 2;
-        if (side == 0 || width == 0 || height == 0 || width > side || height > side ||
-            bytes.LongLength != expectedLength)
-            throw new InvalidDataException($"Cooked font atlas '{path}' has invalid used dimensions or payload size.");
         return (width, height);
     }
 

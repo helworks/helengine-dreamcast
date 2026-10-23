@@ -194,7 +194,7 @@ public sealed class DreamcastCookedContentValidator {
     /// <param name="bytes">Staged cooked texture bytes, already known to carry the <c>DCTX</c> magic.</param>
     /// <param name="path">Staged path used in failure messages.</param>
     /// <returns>Video memory bytes the payload's pixels occupy once uploaded.</returns>
-    static long ValidateCookedTexture(byte[] bytes, string path) {
+    internal static long ValidateCookedTexture(byte[] bytes, string path) {
         if (bytes.Length < DreamcastTextureSchemaIds.HeaderBytes) {
             throw new InvalidOperationException(
                 $"Cooked texture '{path}' is {bytes.Length} bytes, shorter than the {DreamcastTextureSchemaIds.HeaderBytes}-byte {DreamcastTextureSchemaIds.FormatId} header.");

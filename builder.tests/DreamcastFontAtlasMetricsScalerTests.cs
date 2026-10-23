@@ -35,8 +35,13 @@ public sealed class DreamcastFontAtlasMetricsScalerTests {
         }
     }
 
-    [Fact]
-    public void RescalePackagedFonts_UsesCookedNonSquareExtentAndUpdatesSerializedMetrics() {
+    /// <summary>Preserves font metrics for legacy and current palette, mipmapped and VQ texture payloads.</summary>
+    [Theory]
+    [InlineData("Legacy")]
+    [InlineData("DcPal4")]
+    [InlineData("DcPal8_Mipmapped")]
+    [InlineData("DcArgb4444_Vq")]
+    public void RescalePackagedFonts_UsesCookedNonSquareExtentAndUpdatesSerializedMetrics(string formatId) {
         string fixtureRoot = Path.Combine(Path.GetTempPath(), "font-metrics-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(fixtureRoot, "cooked"));
         string fontPath = Path.Combine(fixtureRoot, "cooked", "sample.hefont");
@@ -51,7 +56,7 @@ public sealed class DreamcastFontAtlasMetricsScalerTests {
         try {
             using (var stream = File.Create(fontPath))
                 helengine.files.FontAssetBinarySerializer.Serialize(stream, font);
-            WriteCookedExtent(atlasPath, 256, 64);
+            WriteCookedExtent(atlasPath, 256, 64, formatId);
             var workItem = new PlatformCookWorkItem(
                 "font-atlas", "source.hasset", "font-atlas-texture", "dc", "runtime-texture",
                 "cooked/sample.dctex", "font-atlas", "source-hash", "settings-hash", "{}", []);
@@ -77,7 +82,21 @@ public sealed class DreamcastFontAtlasMetricsScalerTests {
         }
     }
 
-    static void WriteCookedExtent(string path, ushort width, ushort height) {
+    /// <summary>Creates real current native textures or the historical uncompressed atlas fixture.</summary>
+    static void WriteCookedExtent(string path, ushort width, ushort height, string formatId) {
+        if (formatId != "Legacy") {
+            using var texture = new helengine.TextureAsset {
+                Width = width, Height = height,
+                ColorFormat = helengine.TextureAssetColorFormat.Rgba32,
+                AlphaPrecision = helengine.TextureAssetAlphaPrecision.A4,
+                Colors = new byte[width * height * 4], PaletteColors = []
+            };
+            var settings = new helengine.editor.TextureAssetProcessorSettings {
+                ColorFormatId = formatId, AlphaPrecision = helengine.TextureAssetAlphaPrecision.A4
+            };
+            File.WriteAllBytes(path, new DreamcastNativeTextureCooker().Cook(texture, settings));
+            return;
+        }
         const ushort side = 256;
         byte[] bytes = new byte[DreamcastTextureSchemaIds.HeaderBytes + side * side * 2];
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0, 4), DreamcastTextureSchemaIds.Magic);
