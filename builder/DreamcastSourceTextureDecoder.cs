@@ -71,6 +71,7 @@ public sealed class DreamcastSourceTextureDecoder {
             // The existing GDI source decoder always publishes full alpha precision,
             // including opaque images whose importer metadata may infer A0.
             decoded.AlphaPrecision = helengine.TextureAssetAlphaPrecision.A8;
+            decoded.PaletteColors = Array.Empty<byte>();
             return decoded;
         }
         if (!OperatingSystem.IsWindowsVersionAtLeast(6, 1)) {
