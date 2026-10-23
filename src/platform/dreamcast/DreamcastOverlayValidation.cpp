@@ -27,9 +27,21 @@ bool validDestination(float x, float y, float width, float height) noexcept {
 }
 
 bool validSprite(const AuthoredSpriteState& sprite) noexcept {
-    return validDestination(sprite.destinationX, sprite.destinationY,
-                            sprite.destinationWidth, sprite.destinationHeight) &&
-           validTexture(sprite.texture) && finiteColor(sprite.tint) &&
+    if (sprite.hasResolvedCorners) {
+        // Shared-core sprites carry affine corners rather than a destination
+        // rectangle. Match the assembler's finite-input contract without
+        // requiring the unused width and height to be positive.
+        if (!std::isfinite(sprite.destinationX) || !std::isfinite(sprite.destinationY) ||
+            !std::isfinite(sprite.destinationWidth) || !std::isfinite(sprite.destinationHeight))
+            return false;
+        for (unsigned i = 0; i < 4; ++i)
+            if (!std::isfinite(sprite.cornerX[i]) || !std::isfinite(sprite.cornerY[i]))
+                return false;
+    } else if (!validDestination(sprite.destinationX, sprite.destinationY,
+                                 sprite.destinationWidth, sprite.destinationHeight)) {
+        return false;
+    }
+    return validTexture(sprite.texture) && finiteColor(sprite.tint) &&
            std::isfinite(sprite.rotationCos) && std::isfinite(sprite.rotationSin) &&
            sprite.sourceU0 >= 0.0f && sprite.sourceU0 < sprite.sourceU1 &&
            sprite.sourceU1 <= 1.0f && sprite.sourceV0 >= 0.0f &&

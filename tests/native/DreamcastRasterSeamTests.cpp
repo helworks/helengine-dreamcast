@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -188,6 +189,43 @@ void MalformedOverlayReferencesFailValidation() {
     EXPECT(!renderer_detail::validOverlayFrame(overlay));
 }
 
+void ResolvedSpriteCornersPassTheRasterBoundary() {
+    using namespace helengine::dreamcast;
+    SpriteTexture texture{reinterpret_cast<void*>(1), 8, 4, 4};
+    AuthoredOverlayFrame overlay{};
+    overlay.sprites.spriteCount = 1;
+    auto& sprite = overlay.sprites.sprites[0];
+    sprite = {0, 0, 0, 0, 0, 0, 0.5f, 0.5f, &texture, {1, 1, 1, 1}};
+    sprite.hasResolvedCorners = true;
+    const float x[4] = {30, 10, 38, 18};
+    const float y[4] = {20, 25, 60, 65};
+    for (unsigned i = 0; i < 4; ++i) {
+        sprite.cornerX[i] = x[i];
+        sprite.cornerY[i] = y[i];
+    }
+    overlay.order[0] = {AuthoredOverlayKind::Sprite, 0};
+    overlay.orderCount = 1;
+    EXPECT(renderer_detail::validOverlayFrame(overlay));
+
+    // Legacy sprites still need a positive destination rectangle.
+    sprite.hasResolvedCorners = false;
+    EXPECT(!renderer_detail::validOverlayFrame(overlay));
+    sprite.destinationWidth = sprite.destinationHeight = 8;
+    EXPECT(renderer_detail::validOverlayFrame(overlay));
+
+    // A valid legacy rectangle must not hide malformed resolved coordinates.
+    sprite.hasResolvedCorners = true;
+    for (unsigned i = 0; i < 4; ++i) {
+        sprite.cornerX[i] = std::numeric_limits<float>::quiet_NaN();
+        EXPECT(!renderer_detail::validOverlayFrame(overlay));
+        sprite.cornerX[i] = x[i];
+        sprite.cornerY[i] = std::numeric_limits<float>::infinity();
+        EXPECT(!renderer_detail::validOverlayFrame(overlay));
+        sprite.cornerY[i] = y[i];
+    }
+    EXPECT(renderer_detail::validOverlayFrame(overlay));
+}
+
 } // namespace
 
 int main() {
@@ -200,6 +238,7 @@ int main() {
     ScreenTriangleDiagnosticUsesFrontFacingWinding();
     MixedOverlayValidationAcceptsAndPreservesThreeKinds();
     MalformedOverlayReferencesFailValidation();
+    ResolvedSpriteCornersPassTheRasterBoundary();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " assertion(s) failed\n";
