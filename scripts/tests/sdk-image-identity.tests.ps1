@@ -128,7 +128,10 @@ if (Test-Path -LiteralPath (Join-Path $realProofRoot 'index.json')) {
         $env:HELENGINE_DC_SDK_IDENTITY_ROOT=$realProofRoot
         Reject {
             try { . $buildPath -BuildId build -Mode Diagnostic -KosPath $FixtureRoot -OutputRoot (Join-Path $FixtureRoot 'native-output') -NativeObjectCacheRoot (Join-Path $FixtureRoot 'cache') -ReuseBuildDirectory }
-            catch { $script:observedCacheInputs=$cacheInputs; throw }
+            catch {
+                if (Get-Variable cacheInputs -ErrorAction SilentlyContinue) { $script:observedCacheInputs=$cacheInputs }
+                throw
+            }
         } 'Docker build failed with exit code 23'
         Check ($script:recordedDockerArgs -ccontains $realProof.ConfigImageId) 'Docker must execute the verified local config.'
         Check (-not ($script:recordedDockerArgs -ccontains $lockedPin)) 'Docker unexpectedly executed canonical alias.'
