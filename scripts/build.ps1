@@ -78,6 +78,7 @@ function Get-SourceInputFingerprint {
     $sourceInputFiles = @(
         Get-Item -LiteralPath (Join-Path $repoRoot 'Makefile')
         Get-Item -LiteralPath (Join-Path $repoRoot 'scripts/build.ps1')
+        Get-Item -LiteralPath (Join-Path $repoRoot 'scripts/dc-sdk-identity.ps1')
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -File -Recurse
     )
@@ -163,10 +164,10 @@ $expectedImageTag = $lock['LocalImageTag']
 if ($DockerImage -ne $expectedImageTag) {
     throw "Docker image tag '$DockerImage' is not the locked tag '$expectedImageTag'. Run prepare_toolchain.ps1 first."
 }
-$actualImageId = ((Invoke-CheckedNative 'docker' @('image', 'inspect', $DockerImage, '--format', '{{.Id}}')) -join '').Trim()
-if ($actualImageId -ne $lock['LocalImageId']) {
-    throw "SDK image ID mismatch. Expected $($lock['LocalImageId']), found $actualImageId."
-}
+. (Join-Path $PSScriptRoot 'dc-sdk-identity.ps1')
+$sdkIdentity = Get-DreamcastSdkImageIdentity -CanonicalImageId $lock['LocalImageId'] -LockedTag $DockerImage
+$actualImageId = $sdkIdentity.CanonicalImageId
+$localImageId = $sdkIdentity.LocalImageId
 
 function Get-TextSha256 {
     param([string]$Text)
@@ -272,7 +273,7 @@ $dockerArgs = @(
     '--mount', "type=bind,source=$nativeObjectRoot,target=/native-cache",
     '--mount', "type=bind,source=$packageObjectRoot,target=/package-cache",
     '--entrypoint', '/bin/bash',
-    $DockerImage,
+    $localImageId,
     '-lc', $innerCommand
 )
 if ($Mode -eq 'Authored') {
@@ -287,7 +288,7 @@ if ($Mode -eq 'Authored') {
         '--mount', "type=bind,source=$nativeObjectRoot,target=/native-cache",
         '--mount', "type=bind,source=$packageObjectRoot,target=/package-cache",
         '--entrypoint', '/bin/bash',
-        $DockerImage,
+        $localImageId,
         '-lc', $innerCommand
     )
 }
@@ -319,7 +320,7 @@ if (-not (Test-Path -LiteralPath $elfPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $mapPath -PathType Leaf)) {
     throw "Successful build did not produce $mapPath"
 }
-$readelfOutput = @(& docker run --rm --mount "type=bind,source=$buildRoot,target=/out,readonly" --entrypoint $lock['ReadelfPath'] $DockerImage -h /out/helengine_dc.elf 2>&1)
+$readelfOutput = @(& docker run --rm --mount "type=bind,source=$buildRoot,target=/out,readonly" --entrypoint $lock['ReadelfPath'] $localImageId -h /out/helengine_dc.elf 2>&1)
 if ($LASTEXITCODE -ne 0) {
     throw "Pinned sh-elf-readelf failed: $($readelfOutput -join [Environment]::NewLine)"
 }
@@ -334,7 +335,7 @@ $elfHash = (Get-FileHash -LiteralPath $elfPath -Algorithm SHA256).Hash.ToLowerIn
 # Keep the complete debugging artifact and package a separate runtime ELF.
 $runtimeElfPath = Join-Path $buildRoot 'helengine_dc.runtime.elf'
 $objcopyPath = $lock['ReadelfPath'] -replace 'sh-elf-readelf$', 'sh-elf-objcopy'
-$objcopyOutput = @(& docker run --rm --mount "type=bind,source=$buildRoot,target=/out" --entrypoint $objcopyPath $DockerImage --strip-debug /out/helengine_dc.elf /out/helengine_dc.runtime.elf 2>&1)
+$objcopyOutput = @(& docker run --rm --mount "type=bind,source=$buildRoot,target=/out" --entrypoint $objcopyPath $localImageId --strip-debug /out/helengine_dc.elf /out/helengine_dc.runtime.elf 2>&1)
 if ($LASTEXITCODE -ne 0) { throw "Pinned sh-elf-objcopy failed: $($objcopyOutput -join [Environment]::NewLine)" }
 function Get-ElfLoadImageSignature {
     param([string]$Path)
@@ -401,6 +402,10 @@ $manifestLines = @(
     "KosCommit=$expectedKosCommit",
     "DockerImage=$DockerImage",
     "DockerImageId=$actualImageId",
+    "DockerLocalImageId=$localImageId",
+    "DockerIndexSha256=$($sdkIdentity.IndexSha256)",
+    "DockerManifestSha256=$($sdkIdentity.ManifestSha256)",
+    "DockerConfigSha256=$($sdkIdentity.ConfigSha256)",
     "UpstreamBaseImage=$($lock['UpstreamBaseImage'])",
     "CompilerFlags=$($lock['CompilerFlags'])",
     "Mode=$Mode",
