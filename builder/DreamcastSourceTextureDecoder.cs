@@ -1,4 +1,5 @@
 using System.Drawing;
+using helengine.editor;
 
 namespace helengine.dreamcast.builder;
 
@@ -60,6 +61,21 @@ public sealed class DreamcastSourceTextureDecoder {
     /// <param name="sourceAssetPath">Absolute source image path.</param>
     /// <returns>Raw texture asset containing straight RGBA pixel bytes.</returns>
     helengine.TextureAsset DecodeImageFile(string sourceAssetPath) {
+        if (!OperatingSystem.IsWindows()) {
+            TextureImporterRegistration registration = PortableImporterFactory.CreateDefault()
+                .OfType<TextureImporterRegistration>()
+                .Single(item => item.ImporterId == "gdi");
+            using FileStream stream = File.OpenRead(sourceAssetPath);
+            helengine.TextureAsset decoded = registration.Importer.ImportTexture(stream)
+                ?? throw new InvalidDataException("Dreamcast source image could not be decoded.");
+            // The existing GDI source decoder always publishes full alpha precision,
+            // including opaque images whose importer metadata may infer A0.
+            decoded.AlphaPrecision = helengine.TextureAssetAlphaPrecision.A8;
+            return decoded;
+        }
+        if (!OperatingSystem.IsWindowsVersionAtLeast(6, 1)) {
+            throw new PlatformNotSupportedException("Dreamcast Windows image decoding requires Windows 7 or later.");
+        }
         using Bitmap bitmap = new(sourceAssetPath);
         if (bitmap.Width < 1 || bitmap.Height < 1) {
             throw new InvalidOperationException("Source textures must have positive dimensions.");
