@@ -85,10 +85,10 @@ Matrix4x4 matrixFromGenerated(const GeneratedMatrixFields& generated) noexcept {
 #if defined(HELENGINE_DREAMCAST_HAS_GENERATED_CORE)
 Matrix4x4 matrixFromGenerated(const ::float4x4& generated) noexcept {
     return matrixFromGenerated(GeneratedMatrixFields{
-        generated.M11, generated.M12, generated.M13, generated.M14,
-        generated.M21, generated.M22, generated.M23, generated.M24,
-        generated.M31, generated.M32, generated.M33, generated.M34,
-        generated.M41, generated.M42, generated.M43, generated.M44});
+        static_cast<float>(generated.M11), static_cast<float>(generated.M12), static_cast<float>(generated.M13), static_cast<float>(generated.M14),
+        static_cast<float>(generated.M21), static_cast<float>(generated.M22), static_cast<float>(generated.M23), static_cast<float>(generated.M24),
+        static_cast<float>(generated.M31), static_cast<float>(generated.M32), static_cast<float>(generated.M33), static_cast<float>(generated.M34),
+        static_cast<float>(generated.M41), static_cast<float>(generated.M42), static_cast<float>(generated.M43), static_cast<float>(generated.M44)});
 }
 #endif
 
