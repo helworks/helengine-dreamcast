@@ -122,7 +122,7 @@ DreamcastGlyphClip resolveGlyphClip(::Entity* owner) {
             auto* clip = dynamic_cast<::IClipRegion2D*>(components->get_Item(i));
             if (clip == nullptr) continue;
             const ::float4 rect = clip->GetClipRect();
-            result.include(rect.X, rect.Y, rect.Z, rect.W);
+            result.include(static_cast<float>(rect.X), static_cast<float>(rect.Y), static_cast<float>(rect.Z), static_cast<float>(rect.W));
         }
     }
     return result;
@@ -255,12 +255,12 @@ void DreamcastRenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) 
         const ::float3 position = owner->get_Position();
         const ::float3 scale = owner->get_Scale();
         const ::int2 size = shape->get_Size();
-        state.destinationX = position.X;
-        state.destinationY = position.Y;
-        state.destinationWidth = static_cast<float>(size.X) * scale.X;
-        state.destinationHeight = static_cast<float>(size.Y) * scale.Y;
-        state.radius = shape->get_Radius();
-        state.borderThickness = shape->get_BorderThickness();
+        state.destinationX = static_cast<float>(position.X);
+        state.destinationY = static_cast<float>(position.Y);
+        state.destinationWidth = static_cast<float>(size.X * scale.X);
+        state.destinationHeight = static_cast<float>(size.Y * scale.Y);
+        state.radius = static_cast<float>(shape->get_Radius());
+        state.borderThickness = static_cast<float>(shape->get_BorderThickness());
         state.roundedCorners = static_cast<std::uint8_t>(shape->get_Corners());
         const ::byte4 fill = shape->get_FillColor();
         const ::byte4 border = shape->get_BorderColor();
@@ -293,15 +293,15 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
         state.hasResolvedCorners = true;
         const ::float2 points[]{quad.TopLeft, quad.TopRight, quad.BottomLeft, quad.BottomRight};
         for (unsigned i = 0; i < 4; ++i) {
-            state.cornerX[i] = points[i].X;
-            state.cornerY[i] = points[i].Y;
+            state.cornerX[i] = static_cast<float>(points[i].X);
+            state.cornerY[i] = static_cast<float>(points[i].Y);
         }
 
         // get_SourceRect is (x, y, width, height) normalized against the real
         // image; the raster stage samples the padded square.
         const ::float4 sourceRect = sprite->get_SourceRect();
         const SpriteSourceSpan span =
-            spriteSourceSpan(SpriteSourceRect{sourceRect.X, sourceRect.Y, sourceRect.Z, sourceRect.W},
+            spriteSourceSpan(SpriteSourceRect{static_cast<float>(sourceRect.X), static_cast<float>(sourceRect.Y), static_cast<float>(sourceRect.Z), static_cast<float>(sourceRect.W)},
                              handle.usedWidth, handle.usedHeight, handle.paddedSide);
         state.sourceU0 = span.u0;
         state.sourceV0 = span.v0;
@@ -316,8 +316,8 @@ void DreamcastRenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
         // its address is passed through unchanged. It stays valid until
         // ReleaseTexture, which cannot run inside a frame.
         state.texture = &handle;
-        const float spanX = std::fabs(quad.TopRight.X - quad.TopLeft.X) + std::fabs(quad.BottomLeft.X - quad.TopLeft.X);
-        const float spanY = std::fabs(quad.TopRight.Y - quad.TopLeft.Y) + std::fabs(quad.BottomLeft.Y - quad.TopLeft.Y);
+        const ::RealEvaluation spanX = ::RealMath::Abs(quad.TopRight.X - quad.TopLeft.X) + ::RealMath::Abs(quad.BottomLeft.X - quad.TopLeft.X);
+        const ::RealEvaluation spanY = ::RealMath::Abs(quad.TopRight.Y - quad.TopLeft.Y) + ::RealMath::Abs(quad.BottomLeft.Y - quad.TopLeft.Y);
         if (spanX > 400.0f && spanY > 400.0f) {
             helengine_dc_backdrop_probe[0] += 1.0f;
             for (unsigned i = 0; i < 4; ++i) {
@@ -347,17 +347,17 @@ void DreamcastRenderManager2D::DrawText(::ITextDrawable2D* text) {
     }
 
     const ::float2 shadow = text->get_ShadowOffset();
-    const float outlineScale = text->get_OutlineScale();
+    const float outlineScale = static_cast<float>(text->get_OutlineScale());
     // Outline and shadow passes are outside the basic atlas-backed text slice;
     // report them rather than silently rendering a visually different result.
-    if (!std::isfinite(outlineScale) || !std::isfinite(shadow.X) || !std::isfinite(shadow.Y) ||
+    if (!std::isfinite(outlineScale) || !::RealEvaluation::IsFinite(shadow.X) || !::RealEvaluation::IsFinite(shadow.Y) ||
         outlineScale < 0.0f) {
         assembler_->latchFailure(AuthoredFrameStatus::InvalidGlyph);
         return;
     }
 
     auto* atlas = dynamic_cast<DreamcastRuntimeTexture*>(font->get_Texture());
-    ::Dictionary<char, ::FontChar>* characters = font->get_Characters();
+    ::Dictionary<char16_t, ::FontChar>* characters = font->get_Characters();
     ::FontInfo* fontInfo = font->get_FontInfo();
     if (atlas == nullptr || atlas->get_IsDisposed() || characters == nullptr ||
         fontInfo == nullptr || characters->get_Count() <= 0 ||
@@ -378,24 +378,24 @@ void DreamcastRenderManager2D::DrawText(::ITextDrawable2D* text) {
     for (const auto& pair : *characters) {
         const ::FontChar metric = pair.get_Value();
         const ::float4 source = metric.SourceRect;
-        fontGlyphScratch_.push_back({static_cast<unsigned char>(pair.get_Key()),
-                                     source.X, source.Y, source.Z, source.W,
-                                     metric.OffsetY, metric.AdvanceWidth});
+        fontGlyphScratch_.push_back({static_cast<std::uint32_t>(pair.get_Key()),
+                                     static_cast<float>(source.X), static_cast<float>(source.Y), static_cast<float>(source.Z), static_cast<float>(source.W),
+                                     static_cast<float>(metric.OffsetY), static_cast<float>(metric.AdvanceWidth)});
     }
     const ::float3 position = owner->get_Position();
     const ::int2 size = text->get_Size();
     const ::byte4 color = text->get_Color();
     const auto textValue = text->get_Text();
-    const TextLayoutInput input{textValue.c_str(), position.X, position.Y,
+    const TextLayoutInput input{textValue.c_str(), static_cast<float>(position.X), static_cast<float>(position.Y),
                                 static_cast<float>(size.X), static_cast<float>(size.Y),
-                                text->get_FontScale(),
+                                static_cast<float>(text->get_FontScale()),
                                 static_cast<TextHorizontalAlignment>(text->get_Alignment()),
                                 text->get_WrapText(),
                                 {unitFromByte(color.X), unitFromByte(color.Y),
                                  unitFromByte(color.Z), unitFromByte(color.W)}};
     const AuthoredFontView view{static_cast<std::uint16_t>(font->get_AtlasWidth()),
                                 static_cast<std::uint16_t>(font->get_AtlasHeight()),
-                                texture.paddedSide, font->get_LineHeight(),
+                                texture.paddedSide, static_cast<float>(font->get_LineHeight()),
                                 fontInfo->get_SpaceWidth(), fontGlyphScratch_.data(),
                                 static_cast<std::uint16_t>(fontGlyphScratch_.size()), &texture};
     if (glyphLayoutScratch_ == nullptr)
@@ -407,7 +407,7 @@ void DreamcastRenderManager2D::DrawText(::ITextDrawable2D* text) {
     struct TextPass { float x; float y; ::byte4 color; } passes[6]{};
     unsigned passCount = 0;
     if (shadow.X != 0.0f || shadow.Y != 0.0f)
-        passes[passCount++] = {shadow.X, shadow.Y, text->get_ShadowColor()};
+        passes[passCount++] = {static_cast<float>(shadow.X), static_cast<float>(shadow.Y), text->get_ShadowColor()};
     if (outlineScale > 0.0f) {
         const ::byte4 outlineColor = text->get_OutlineColor();
         passes[passCount++] = {-outlineScale, 0.0f, outlineColor};

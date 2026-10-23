@@ -158,9 +158,9 @@ AuthoredLightState gatherLights(::ObjectManager& objectManager) {
             }
             const ::float4 color = light->get_Color();
             const float intensity = light->get_Intensity();
-            lights.ambient.r += color.X * intensity;
-            lights.ambient.g += color.Y * intensity;
-            lights.ambient.b += color.Z * intensity;
+            lights.ambient.r += static_cast<float>(color.X * intensity);
+            lights.ambient.g += static_cast<float>(color.Y * intensity);
+            lights.ambient.b += static_cast<float>(color.Z * intensity);
         }
     }
 
@@ -182,7 +182,7 @@ AuthoredLightState gatherLights(::ObjectManager& objectManager) {
             }
             const ::float4 orientation = owner->get_Orientation();
             const Vec3 forward = directionalLightForward(
-                GeneratedQuaternion{orientation.X, orientation.Y, orientation.Z, orientation.W});
+                GeneratedQuaternion{static_cast<float>(orientation.X), static_cast<float>(orientation.Y), static_cast<float>(orientation.Z), static_cast<float>(orientation.W)});
             const float lengthSquared =
                 forward.x * forward.x + forward.y * forward.y + forward.z * forward.z;
             if (!(lengthSquared > 1.0e-12f)) {
@@ -193,7 +193,7 @@ AuthoredLightState gatherLights(::ObjectManager& objectManager) {
             const float intensity = light->get_Intensity();
             lights.directional[lights.directionalCount] = AuthoredDirectionalLight{
                 Vec3{forward.x * inverseLength, forward.y * inverseLength, forward.z * inverseLength},
-                ColorRgba{color.X * intensity, color.Y * intensity, color.Z * intensity, 1.0f}};
+                ColorRgba{static_cast<float>(color.X * intensity), static_cast<float>(color.Y * intensity), static_cast<float>(color.Z * intensity), 1.0f}};
             ++lights.directionalCount;
         }
     }
@@ -207,20 +207,20 @@ AuthoredCameraState gatherCamera(::ICamera& camera) {
     }
     AuthoredCameraState state{};
     state.worldFromCamera = matrixFromGenerated(owner->get_WorldTransformMatrix());
-    state.nearPlane = camera.get_NearPlaneDistance();
-    state.farPlane = camera.get_FarPlaneDistance();
+    state.nearPlane = static_cast<float>(camera.get_NearPlaneDistance());
+    state.farPlane = static_cast<float>(camera.get_FarPlaneDistance());
     // The vertical field of view belongs to the authored camera, so one scene
     // frames the same way here as it does on every other platform.
-    state.verticalFovRadians = camera.get_FieldOfView();
+    state.verticalFovRadians = static_cast<float>(camera.get_FieldOfView());
     const ::float4 viewport = camera.get_Viewport();
-    state.viewport = AuthoredViewport{viewport.X, viewport.Y, viewport.Z, viewport.W};
+    state.viewport = AuthoredViewport{static_cast<float>(viewport.X), static_cast<float>(viewport.Y), static_cast<float>(viewport.Z), static_cast<float>(viewport.W)};
     state.hasRenderTarget = camera.get_RenderTarget() != nullptr;
     ::CameraClearSettings clear = camera.get_ClearSettings();
     state.clearColorEnabled = clear.get_ClearColorEnabled();
     state.clearDepthEnabled = clear.get_ClearDepthEnabled();
     state.clearStencilEnabled = clear.get_ClearStencilEnabled();
     const ::float4 clearColor = clear.get_ClearColor();
-    state.clearColor = ColorRgba{clearColor.X, clearColor.Y, clearColor.Z, clearColor.W};
+    state.clearColor = ColorRgba{static_cast<float>(clearColor.X), static_cast<float>(clearColor.Y), static_cast<float>(clearColor.Z), static_cast<float>(clearColor.W)};
     return state;
 }
 

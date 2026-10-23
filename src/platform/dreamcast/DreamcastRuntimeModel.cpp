@@ -18,8 +18,8 @@ namespace {
 constexpr std::uint16_t kMaxVertices = 64;
 constexpr std::uint16_t kMaxTriangles = 128;
 
-bool finite(float value) noexcept {
-    return std::isfinite(value);
+bool finite(::RealEvaluation value) noexcept {
+    return ::RealEvaluation::IsFinite(value);
 }
 
 void destroyModelAsset(::ModelAsset* asset) noexcept {
@@ -158,12 +158,12 @@ DreamcastRuntimeModel* DreamcastRuntimeModel::CreateOwned(::ModelAsset* asset) {
                                assetLease.value->Normals->get_Length() == runtime->vertexCount_;
         for (std::uint16_t index = 0; index < runtime->vertexCount_; ++index) {
             const ::float3& position = (*assetLease.value->Positions)[index];
-            SourceVertex vertex{{position.X, position.Y, position.Z},
+            SourceVertex vertex{{static_cast<float>(position.X), static_cast<float>(position.Y), static_cast<float>(position.Z)},
                                 {1.0f, 1.0f, 1.0f, 1.0f},
                                 {0.0f, 0.0f, 0.0f}};
             if (runtime->hasNormals_) {
                 const ::float3& normal = (*assetLease.value->Normals)[index];
-                vertex.normal = Vec3{normal.X, normal.Y, normal.Z};
+                vertex.normal = Vec3{static_cast<float>(normal.X), static_cast<float>(normal.Y), static_cast<float>(normal.Z)};
             }
             runtime->vertices_[index] = vertex;
         }
