@@ -70,7 +70,7 @@ public sealed class DreamcastMaterialCooker {
             BaseColorA = alpha
         };
 
-        return new PlatformMaterialCookResult(helengine.files.AssetSerializer.SerializeToBytes(cookedAsset), []);
+        return new PlatformMaterialCookResult(helengine.files.AssetSerializer.SerializeToBytes(cookedAsset, request.NumericPolicy), []);
     }
 
     /// <summary>Returns a required nonblank schema field value.</summary>

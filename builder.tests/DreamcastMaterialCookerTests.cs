@@ -6,6 +6,20 @@ namespace helengine.dreamcast.builder.tests;
 
 /// <summary>Verifies strict authored material validation and byte serialization.</summary>
 public sealed class DreamcastMaterialCookerTests {
+    /// <summary>Reads the cooked envelope using each selected target policy.</summary>
+    [Theory]
+    [InlineData(16)]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void MaterialPayloadLoadsWithTargetNumericPolicy(int bits) {
+        var policy = new helengine.NumericPrecisionPolicy(bits, bits);
+        var request = new PlatformMaterialCookRequest("material", "materials/sample.hasset", "dc", "debug", "dc-standard",
+            DreamcastMaterialSchemaIds.StandardSchemaId, CreateFields("#FFFFFFFF"), numericPolicy: policy);
+        var result = new DreamcastMaterialCooker().Cook(request);
+        using var stream = new MemoryStream(result.CookedMaterialBytes);
+        Assert.IsType<helengine.PlatformMaterialAsset>(helengine.PackagedAssetBinarySerializer.Deserialize(stream, policy));
+    }
+
     /// <summary>Confirms an authored red material round-trips through the current asset serializer.</summary>
     [Fact]
     public void CookMaterial_EmitsAuthoredOpaqueRed() {
