@@ -98,6 +98,15 @@ Write-JsonBytes 'manifest.json' $manifest|Out-Null; Remove-Item -LiteralPath (Jo
 Reject { Read-DreamcastSdkImageProof (Digest $manifestPath) $FixtureRoot } 'linux/amd64'
 $pin=Make-Proof; $proof=Read-DreamcastSdkImageProof $pin $FixtureRoot
 $script:inspectCount=0
+function Invoke-CheckedNative {
+    param($FilePath,$ArgumentList)
+    $script:inspectCount++
+    if ($ArgumentList[2] -cne 'locked-sdk-tag' -or $ArgumentList.Count -ne 5) { throw 'Legacy image inspection changed.' }
+    return $pin
+}
+$resolved=Get-DreamcastSdkImageIdentity $pin -IdentityRoot '' -LockedTag 'locked-sdk-tag'
+Check ($resolved.CanonicalImageId -ceq $pin -and $resolved.LocalImageId -ceq $pin -and $script:inspectCount -eq 1) 'No-proof mode must retain one legacy inspection.'
+$script:inspectCount=0
 function Invoke-CheckedNative { param($FilePath,$ArgumentList) $script:inspectCount++; throw 'Docker metadata failure' }
 Reject { Get-DreamcastSdkImageIdentity $pin $FixtureRoot } 'Docker metadata failure'
 Check ($script:inspectCount -eq 1) 'Daemon failure triggered fallback.'
