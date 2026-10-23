@@ -57,7 +57,18 @@ public sealed class DreamcastContentStager {
         string cookedRoot,
         string freshStagingRoot,
         IReadOnlyList<string> builderCookedRelativePaths,
+        CancellationToken cancellationToken) => Stage(manifest, cookedRoot, freshStagingRoot,
+            builderCookedRelativePaths, RealRepresentation.Policy, cancellationToken);
+
+    /// <summary>Stages one target's packaged assets without assuming the managed tooling host's numeric width.</summary>
+    public IReadOnlyList<string> Stage(
+        PlatformBuildManifest manifest,
+        string cookedRoot,
+        string freshStagingRoot,
+        IReadOnlyList<string> builderCookedRelativePaths,
+        NumericPrecisionPolicy numericPolicy,
         CancellationToken cancellationToken) {
+        ArgumentNullException.ThrowIfNull(numericPolicy);
         if (manifest == null) {
             throw new ArgumentNullException(nameof(manifest));
         }
@@ -102,7 +113,7 @@ public sealed class DreamcastContentStager {
                 throw new FileNotFoundException($"Declared cooked artifact is missing: {relativePath}", sourcePath);
             }
 
-            if (ClassifyRuntimeLoadable(sourcePath) == ArtifactStageKind.NotLoadable) {
+            if (ClassifyRuntimeLoadable(sourcePath, numericPolicy) == ArtifactStageKind.NotLoadable) {
                 skippedPaths.Add(relativePath);
                 continue;
             }
@@ -191,7 +202,7 @@ public sealed class DreamcastContentStager {
     /// <see cref="IDisposable"/> is disposed here, before returning, since neither the verbatim-copy nor the skip
     /// path needs the instance itself.
     /// </summary>
-    static ArtifactStageKind ClassifyRuntimeLoadable(string sourcePath) {
+    static ArtifactStageKind ClassifyRuntimeLoadable(string sourcePath, NumericPrecisionPolicy numericPolicy) {
         byte[] bytes = File.ReadAllBytes(sourcePath);
         if (bytes.Length < 4 || bytes[0] != (byte)'H' || bytes[1] != (byte)'E' || bytes[2] != (byte)'L' || bytes[3] != (byte)'E') {
             return ArtifactStageKind.NotLoadable;
@@ -205,7 +216,8 @@ public sealed class DreamcastContentStager {
 
         Asset asset;
         try {
-            asset = AssetSerializer.DeserializeFromBytes(bytes);
+            using MemoryStream stream = new(bytes, writable: false);
+            asset = PackagedAssetBinarySerializer.Deserialize(stream, numericPolicy);
         } catch (Exception exception) when (exception is not OutOfMemoryException) {
             return ArtifactStageKind.NotLoadable;
         }

@@ -11,6 +11,30 @@ public sealed class DreamcastContentStagerTests {
     const string FontPath = "cooked/fonts/test.hefont";
     const string FontAtlasPath = "cooked/fonts/test.dctex";
 
+    /// <summary>Classifies cooked scene data using the selected target width rather than the managed host width.</summary>
+    [Theory]
+    [InlineData(16)]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void StageCopiesSceneUsingTargetNumericPolicy(int storageBits) {
+        using TemporaryDirectory temporary = new();
+        string sourceRoot = Path.Combine(temporary.Path, "package-source");
+        string destinationRoot = Path.Combine(temporary.Path, "stage");
+        var policy = new NumericPrecisionPolicy(storageBits, storageBits);
+        var scene = new SceneAsset {
+            Id = "scenes/startup.helen", RootEntities = [], AssetReferences = [],
+            SceneSettings = new SceneSettingsAsset()
+        };
+        byte[] bytes = helengine.files.AssetSerializer.SerializeToBytes(scene, policy);
+        DreamcastCookedTestContent.WriteFile(sourceRoot, DreamcastCookedTestContent.ScenePath, bytes);
+        var artifact = new PlatformBuildArtifact(DreamcastCookedTestContent.ScenePath, "scene/startup",
+            DreamcastCookedTestContent.Hash(bytes), "scene", "baseline");
+        IReadOnlyList<string> staged = new DreamcastContentStager().Stage(CreateManifest(artifact, []),
+            sourceRoot, destinationRoot, [], policy, CancellationToken.None);
+        Assert.Contains(DreamcastCookedTestContent.ScenePath, staged);
+        Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(destinationRoot, DreamcastCookedTestContent.ScenePath)));
+    }
+
     /// <summary>Accepts larger resident packages while independently enforcing the runtime's per-file read cap.</summary>
     /// <param name="textureBytes">Size of each builder-owned texture payload.</param>
     /// <param name="textureCount">Number of textures included in the package.</param>

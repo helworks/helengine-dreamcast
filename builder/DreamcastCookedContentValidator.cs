@@ -35,7 +35,12 @@ public sealed class DreamcastCookedContentValidator {
     /// </remarks>
     /// <param name="stagedContentRoot">Fresh staging root produced by the content stager.</param>
     /// <param name="startupSceneCookedRelativePath">Normalized cooked path of the startup scene.</param>
-    public void Validate(string stagedContentRoot, string startupSceneCookedRelativePath) {
+    public void Validate(string stagedContentRoot, string startupSceneCookedRelativePath) =>
+        Validate(stagedContentRoot, startupSceneCookedRelativePath, RealRepresentation.Policy);
+
+    /// <summary>Validates packaged values against the selected target policy independently of the authoring host.</summary>
+    public void Validate(string stagedContentRoot, string startupSceneCookedRelativePath, NumericPrecisionPolicy numericPolicy) {
+        ArgumentNullException.ThrowIfNull(numericPolicy);
         if (string.IsNullOrWhiteSpace(stagedContentRoot)) {
             throw new ArgumentException("Staged content root is required.", nameof(stagedContentRoot));
         }
@@ -44,7 +49,7 @@ public sealed class DreamcastCookedContentValidator {
             throw new DirectoryNotFoundException($"Staged content root does not exist: {root}");
         }
         string scenePath = DreamcastSceneCompatibilityValidator.NormalizeRelativePath(startupSceneCookedRelativePath, "startup scene path");
-        Asset sceneAsset = DeserializeAsset(scenePath, ReadStagedFile(root, scenePath));
+        Asset sceneAsset = DeserializeAsset(scenePath, ReadStagedFile(root, scenePath), numericPolicy);
         if (sceneAsset is not SceneAsset scene) {
             throw new InvalidOperationException($"Startup scene '{scenePath}' did not deserialize as a scene asset.");
         }
@@ -82,7 +87,7 @@ public sealed class DreamcastCookedContentValidator {
                 ValidateFontAsset(root, relativePath, bytes);
                 continue;
             }
-            Asset staged = DeserializeAsset(relativePath, bytes);
+            Asset staged = DeserializeAsset(relativePath, bytes, numericPolicy);
             if (staged is ModelAsset model) {
                 ValidateModel(model, relativePath);
                 modelCount++;
@@ -169,10 +174,11 @@ public sealed class DreamcastCookedContentValidator {
     /// <param name="relativePath">Staged path used in failure messages.</param>
     /// <param name="bytes">Serialized engine asset bytes.</param>
     /// <returns>The deserialized asset.</returns>
-    static Asset DeserializeAsset(string relativePath, byte[] bytes) {
+    static Asset DeserializeAsset(string relativePath, byte[] bytes, NumericPrecisionPolicy numericPolicy) {
         Asset asset;
         try {
-            asset = AssetSerializer.DeserializeFromBytes(bytes);
+            using MemoryStream stream = new(bytes, writable: false);
+            asset = PackagedAssetBinarySerializer.Deserialize(stream, numericPolicy);
         } catch (Exception exception) when (exception is not InvalidOperationException) {
             throw new InvalidOperationException($"Cooked asset '{relativePath}' could not be deserialized: {exception.Message}", exception);
         }

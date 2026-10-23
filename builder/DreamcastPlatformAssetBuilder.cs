@@ -113,13 +113,13 @@ public sealed class DreamcastPlatformAssetBuilder : IPlatformAssetBuilder, IPlat
                     $"Cooked platform-owned artifact '{cookWorkItems[workItemIndex].OutputRelativePath}'."));
             }
 
-            ContentStager.Stage(request.Manifest, packageSourceRoot, contentRoot, builderCookedRelativePaths, cancellationToken);
+            ContentStager.Stage(request.Manifest, packageSourceRoot, contentRoot, builderCookedRelativePaths, request.NumericPolicy, cancellationToken);
             // Verify manifest hashes against the editor's original bytes first. Only the
             // declared, staged font copies are transformed for their cooked atlas; package
             // inputs retain their hashes and remain reusable by later builds.
             DreamcastFontAtlasMetricsScaler.RescalePackagedFonts(contentRoot, cookWorkItems);
             DreamcastStartupCatalogEntry startupEntry = catalogEntries.Single(entry => string.Equals(entry.SceneId, request.Manifest.StartupSceneId, StringComparison.Ordinal));
-            CookedContentValidator.Validate(contentRoot, startupEntry.CookedRelativePath);
+            CookedContentValidator.Validate(contentRoot, startupEntry.CookedRelativePath, request.NumericPolicy);
             StartupCatalogWriter.Write(catalogRoot, request.Manifest.StartupSceneId, catalogEntries);
             progressReporter.Report(new PlatformBuildProgressUpdate("Build Native ELF", "dreamcast", 0, 1, "Preparing the Dreamcast native executor."));
             NativeBuildExecutor.Build(request, contentRoot, catalogRoot, cancellationToken);
